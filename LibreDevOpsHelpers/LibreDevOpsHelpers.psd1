@@ -12,7 +12,7 @@
     RootModule = 'LibreDevOpsHelpers.psm1'
 
     # Version number of this module.
-    ModuleVersion = '0.1.10'
+    ModuleVersion = '0.1.11'
 
     # Supported PSEditions
     # CompatiblePSEditions = @()
@@ -99,43 +99,22 @@
     # FileList = @()
 
     # Private data to pass to the module specified in RootModule/ModuleToProcess. This may also contain a PSData hashtable with additional module metadata used by PowerShell.
-    PrivateData = @{
+    # LibreDevOpsHelpers.psd1  – only the PrivateData → PSData block shown
 
+    PrivateData = @{
         PSData = @{
 
-        # Tags applied to this module. These help with module discovery in online galleries.
-        # Tags = @()
+            ReadmeFile = 'README.md'
 
-        # A URL to the license for this module.
             LicenseUri = 'https://raw.githubusercontent.com/libre-devops/powershell-helpers/main/LICENSE'
-
-            # A URL to the main website for this project.
             ProjectUri = 'https://github.com/libre-devops/powershell-helpers'
+            IconUri    = 'https://libredevops.org/favicon.ico'
 
-            # A URL to an icon representing this module.
-            IconUri = 'https://libredevops.org/favicon.ico'
+            Tags         = 'terraform','devops','azure','checkov','helpers'
+            ReleaseNotes = 'See CHANGELOG.md for full details'
+        }
+    }
 
-            # ReleaseNotes of this module
-            # ReleaseNotes = ''
-
-            # Prerelease string of this module
-            # Prerelease = ''
-
-            # Flag to indicate whether the module requires explicit user acceptance for install/update/save
-            # RequireLicenseAcceptance = $false
-
-            # External dependent modules of this module
-            # ExternalModuleDependencies = @()
-
-        } # End of PSData hashtable
-
-    } # End of PrivateData hashtable
-
-    # HelpInfo URI of this module
-    # HelpInfoURI = ''
-
-    # Default prefix for commands exported from this module. Override the default prefix using Import-Module -Prefix.
-    # DefaultCommandPrefix = ''
 
 }
 
