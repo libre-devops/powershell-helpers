@@ -12,7 +12,7 @@
     RootModule = 'LibreDevOpsHelpers.psm1'
 
     # Version number of this module.
-    ModuleVersion = '0.1.11'
+    ModuleVersion = '0.1.16'
 
     # Supported PSEditions
     # CompatiblePSEditions = @()
@@ -104,17 +104,15 @@
     PrivateData = @{
         PSData = @{
 
-            ReadmeFile = 'README.md'
-
+            ReadmeFile = 'https://raw.githubusercontent.com/libre-devops/powershell-helpers/refs/heads/main/README.md'
             LicenseUri = 'https://raw.githubusercontent.com/libre-devops/powershell-helpers/main/LICENSE'
             ProjectUri = 'https://github.com/libre-devops/powershell-helpers'
-            IconUri    = 'https://libredevops.org/favicon.ico'
+            IconUri = 'https://libredevops.org/favicon.ico'
 
-            Tags         = 'terraform','devops','azure','checkov','helpers'
+            Tags = 'terraform', 'devops', 'azure', 'checkov', 'helpers'
             ReleaseNotes = 'See CHANGELOG.md for full details'
         }
     }
-
 
 }
 

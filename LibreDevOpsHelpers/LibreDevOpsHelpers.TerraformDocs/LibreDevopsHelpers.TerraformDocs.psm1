@@ -3,6 +3,32 @@
 #############################################################################
 # Helper – format all *.tf files under the current dir (terraform fmt -recursive)
 #############################################################################
+
+function Format-Terraform {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$CodePath
+    )
+
+    $inv  = $MyInvocation.MyCommand.Name
+    $orig = Get-Location
+    try {
+        $tf = Get-Command terraform -ErrorAction Stop
+        _LogMessage -Level INFO  -Message "terraform found at '$($tf.Source)'" -InvocationName $inv
+        Set-Location $CodePath
+        & terraform fmt -recursive
+        if ($LASTEXITCODE) { throw "terraform fmt returned exit code $LASTEXITCODE" }
+        _LogMessage -Level INFO  -Message 'Terraform files formatted (fmt -recursive).' -InvocationName $inv
+    }
+    catch {
+        _LogMessage -Level ERROR -Message $_.Exception.Message -InvocationName $inv
+        throw
+    }
+    finally {
+        Set-Location $orig
+    }
+}
+
 function Format-TerraformCode {
     [CmdletBinding()]
     param(
@@ -130,6 +156,9 @@ function Update-ReadmeWithTerraformDocs {
 #############################################################################
 Export-ModuleMember -Function `
     Format-Terraform, `
-    Read-TerraformFile, Write-TerraformFile, `
-    Format-TerraformVariables, Format-TerraformOutputs, `
+    Format-TerraformCode, `
+    Read-TerraformFile, `
+    Write-TerraformFile, `
+    Format-TerraformVariables, `
+    Format-TerraformOutputs, `
     Update-ReadmeWithTerraformDocs
