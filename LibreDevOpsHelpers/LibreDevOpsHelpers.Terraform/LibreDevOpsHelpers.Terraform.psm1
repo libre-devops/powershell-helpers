@@ -53,8 +53,9 @@ function Get-TerraformStackFolders
         throw "Code root not found: $CodeRoot"
     }
 
+    # Match folders like 0_rg or 0-rg
     $allDirs = Get-ChildItem -Path $CodeRoot -Directory |
-            Where-Object { $_.Name -match '^\d+_.+' }
+            Where-Object { $_.Name -match '^\d+[-_].+' }
 
     if (-not $allDirs)
     {
@@ -67,10 +68,10 @@ function Get-TerraformStackFolders
     $stackLookup = @{ }
     foreach ($dir in $allDirs)
     {
-        if ($dir.Name -match '^(?<order>\d+)_(?<name>.+)$')
+        if ($dir.Name -match '^(?<order>\d+)[-_](?<name>.+)$')
         {
             $stackLookup[$matches.name.ToLower()] = @{
-                Path = $dir.FullName
+                Path  = $dir.FullName
                 Order = [int]$matches.order
             }
         }
@@ -126,6 +127,7 @@ function Get-TerraformStackFolders
 
     return $result
 }
+
 
 ###############################################################################
 # Run `terraform init`
