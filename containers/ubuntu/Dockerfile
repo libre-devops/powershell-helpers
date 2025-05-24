@@ -97,9 +97,7 @@ RUN chown -R ${NORMAL_USER}:${NORMAL_USER} /opt && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-RUN chmod +x /home/${NORMAL_USER}/Run-AzTerraform.ps1 && \
-    chmod +x /home/${NORMAL_USER}/PowerShellModules && \
-    chown -R "${NORMAL_USER}:${NORMAL_USER}" /home/${NORMAL_USER}
+RUN chown -R "${NORMAL_USER}:${NORMAL_USER}" /home/${NORMAL_USER}
 
 USER ${NORMAL_USER}
 WORKDIR /home/${NORMAL_USER}
