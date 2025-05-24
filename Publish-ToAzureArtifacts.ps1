@@ -11,7 +11,7 @@ $repoName      = "AzureArtifacts"
 $aadToken      = $env:AZDO_ARTIFACTS_PAT  # Use a Personal Access Token with Packaging (Read & Write)
 
 # Build URI (use project-scoped if needed)
-$azureUri = "https://pkgs.dev.azure.com/$organization/_packaging/$feedName/nuget/v3"  # or with project: /$project/_packaging/...
+$azureUri = "https://pkgs.dev.azure.com/$organization/_packaging/$project/nuget/v3/index.json"  # or with project: /$project/_packaging/...
 
 # Register repository
 if (-not (Get-PSResourceRepository -Name $repoName -ErrorAction SilentlyContinue)) {
