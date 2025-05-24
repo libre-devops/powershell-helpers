@@ -11,7 +11,7 @@ on:  # This will run at 00:00 on the 1st of every month
 jobs:
   run-script:
     name: 'Run Script'
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
 
     defaults:
       run:

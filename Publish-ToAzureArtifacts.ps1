@@ -1,26 +1,71 @@
-# Define module name and path
-$moduleName = "LibreDevOpsHelpers"
-$modulePath = ".\LibreDevOpsHelpers"
-$psd1Path   = "$modulePath\$moduleName.psd1"
+# ─── CONFIG ─────────────────────────────────────────────────────────────────────
+$moduleName    = "LibreDevOpsHelpers"
+$moduleVersion = "0.1.0"  # Sync with your .psd1 version
+$moduleFolder  = "$moduleName"  # assumes ./LibreDevOpsHelpers exists
+$nuspecPath    = "$moduleName.nuspec"
+$outputDir     = Join-Path $env:TEMP "$moduleName-out"
+$nugetExePath  = ".\nuget.exe"
 
-# Azure Artifacts config
-$organization = $Env:AZDO_ORG_NAME
-$feedName     = $Env:AZDO_FEED_NAME
-$repoName     = "AzureArtifacts"
-$aadToken     = $Env:AZDO_ARTIFACTS_PAT
+$organization  = $env:AZDO_ORG_NAME
+$feedName      = $env:AZDO_FEED_NAME
+$aadToken      = $env:AZDO_ARTIFACTS_PAT
+$repoName      = "AzureArtifacts"
+$nugetConfigPath = Join-Path $env:TEMP "nuget.config"
+$nugetPushUri  = "https://pkgs.dev.azure.com/$organization/_packaging/$feedName/nuget/v3/index.json"
 
-# Use NuGet v3 feed URL
-$azureUri = "https://pkgs.dev.azure.com/$organization/_packaging/$feedName/nuget/v3/index.json"
+if (-not $organization -or -not $feedName -or -not $aadToken) {
+    throw "❌ Missing AZDO_ORG_NAME, AZDO_FEED_NAME, or AZDO_ARTIFACTS_PAT environment variables."
+}
 
-# Path for temporary config
-$tempNugetConfig = Join-Path $env:TEMP "nuget.config"
+# ─── CLEANUP PREVIOUS ───────────────────────────────────────────────────────────
+Remove-Item -Force -Recurse -ErrorAction SilentlyContinue $outputDir
+Remove-Item -Force -ErrorAction SilentlyContinue $nuspecPath
+Remove-Item -Force -ErrorAction SilentlyContinue $nugetConfigPath
 
-# Build temporary NuGet config content
+# ─── DOWNLOAD NUGET.EXE IF MISSING ──────────────────────────────────────────────
+if (-not (Test-Path $nugetExePath)) {
+    Write-Host "📥 Downloading nuget.exe..."
+    Invoke-WebRequest -Uri "https://dist.nuget.org/win-x86-commandline/latest/nuget.exe" `
+                      -OutFile $nugetExePath
+}
+
+# ─── GENERATE .NUSPEC ───────────────────────────────────────────────────────────
+Write-Host "📦 Creating .nuspec..."
+$nuspecContent = @"
+<?xml version="1.0"?>
+<package>
+  <metadata>
+    <id>$moduleName</id>
+    <version>$moduleVersion</version>
+    <authors>Libre DevOps</authors>
+    <owners>Libre DevOps</owners>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <description>Helper functions for Libre DevOps projects</description>
+  </metadata>
+  <files>
+    <file src="$moduleFolder\**\*" target="tools\$moduleName" />
+  </files>
+</package>
+"@
+Set-Content -Path $nuspecPath -Value $nuspecContent -Encoding UTF8 -Force
+
+# ─── PACK MODULE ────────────────────────────────────────────────────────────────
+Write-Host "📦 Running nuget pack..."
+& $nugetExePath pack $nuspecPath -OutputDirectory $outputDir -BasePath "." | Write-Host
+
+$nupkg = Get-ChildItem -Path $outputDir -Filter "*.nupkg" | Select-Object -First 1
+if (-not $nupkg) {
+    throw "❌ .nupkg not created. Check module folder path and nuspec format."
+}
+Write-Host "📦 Created package: $($nupkg.FullName)"
+
+# ─── CREATE TEMP NUGET.CONFIG ───────────────────────────────────────────────────
+Write-Host "🔐 Creating temporary nuget.config..."
 $nugetXml = @"
 <?xml version="1.0" encoding="utf-8"?>
 <configuration>
   <packageSources>
-    <add key="$repoName" value="$azureUri" />
+    <add key="$repoName" value="$nugetPushUri" />
   </packageSources>
   <packageSourceCredentials>
     <$repoName>
@@ -30,53 +75,33 @@ $nugetXml = @"
   </packageSourceCredentials>
 </configuration>
 "@
+Set-Content -Path $nugetConfigPath -Value $nugetXml -Encoding UTF8 -Force
 
-# Write it out cleanly
-Set-Content -Path $tempNugetConfig -Value $nugetXml -Encoding UTF8 -Force
-
-# Remove existing dotnet source if exists
-$existingSources = & dotnet nuget list source --configfile $tempNugetConfig
+# ─── REGISTER SOURCE (DOTNET) ───────────────────────────────────────────────────
+$existingSources = & dotnet nuget list source --configfile $nugetConfigPath
 if ($existingSources -match $repoName) {
-    & dotnet nuget remove source $repoName --configfile $tempNugetConfig
+    & dotnet nuget remove source $repoName --configfile $nugetConfigPath | Out-Null
 }
-
-# Add dotnet nuget source for auth
-& dotnet nuget add source $azureUri `
+& dotnet nuget add source $nugetPushUri `
     --name $repoName `
-    --username 'AzureDevOps' `
+    --username AzureDevOps `
     --password $aadToken `
     --store-password-in-clear-text `
-    --configfile $tempNugetConfig
+    --configfile $nugetConfigPath | Out-Null
 
-# Register PSResource repo if needed
-if (-not (Get-PSResourceRepository -Name $repoName -ErrorAction SilentlyContinue)) {
-    Register-PSResourceRepository -Name $repoName -Uri $azureUri -Trusted
-}
+# ─── PUSH PACKAGE ───────────────────────────────────────────────────────────────
+Write-Host "🚀 Pushing to Azure Artifacts..."
+& dotnet nuget push $nupkg.FullName `
+  --source $nugetPushUri `
+  --api-key AzureDevOps `
+  --configfile $nugetConfigPath `
+  --skip-duplicate
 
-Write-Host "Publishing to Azure Artifacts..."
 
-# Build publish splat
-$PublishSplat = @{
-    Path                  = $psd1Path
-    Repository            = $repoName
-    SkipDependenciesCheck = $true
-}
+# ─── CLEANUP ─────────────────────────────────────────────────────────────────────
+Write-Host "🧹 Cleaning up..."
+Remove-Item -Force -Recurse -ErrorAction SilentlyContinue $outputDir
+Remove-Item -Force -ErrorAction SilentlyContinue $nuspecPath
+Remove-Item -Force -ErrorAction SilentlyContinue $nugetConfigPath
 
-# Optional validation skip
-$ManifestData = Import-PowerShellDataFile -Path $psd1Path
-if ($ManifestData.RequiredModules) {
-    $PublishSplat.SkipModuleManifestValidate = $true
-}
-
-# Force nuget config to be discoverable
-$env:NUGET_CONFIG_FILE = $tempNugetConfig
-
-# Publish
-Publish-PSResource @PublishSplat
-
-# Cleanup
-Unregister-PSResourceRepository -Name $repoName -ErrorAction SilentlyContinue
-Remove-Item $tempNugetConfig -Force -ErrorAction SilentlyContinue
-Remove-Item Env:NUGET_CONFIG_FILE
-
-Write-Host "✅ Done publishing to Azure Artifacts."
+Write-Host "✅ Successfully published $moduleName to Azure Artifacts."
