@@ -56,8 +56,7 @@ function Invoke-Checkov
         [string]  $CheckovSkipChecks = '',
         [switch]  $SoftFail,
 
-    # NEW – just like -InitArgs in your Terraform helper:
-        [string[]]$ExtraArgs = @()      # any additional CLI flags
+        [string[]]$ExtraArgs = @()
     )
 
     #── find the JSON plan ─────────────────────────────────────────────────

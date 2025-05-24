@@ -137,7 +137,10 @@ function Invoke-TerraformInit
         [Parameter(Mandatory)][string]$CodePath,
 
     # Optional additional arguments, e.g. "-backend-config=xyz.tfbackend"
-        [string[]]$InitArgs = @()
+        [string[]]$InitArgs = @(),
+        [bool]$CreateBackendKey = $false,
+        [string]$StackFolderName = $null
+
     )
 
     $inv = $MyInvocation.MyCommand.Name
@@ -151,8 +154,17 @@ function Invoke-TerraformInit
             throw "Terraform code not found: $CodePath"
         }
 
-        _LogMessage -Level 'INFO'  -Message "Running *terraform init ${InitArgs} * in: $CodePath" -InvocationName $inv
         Set-Location $CodePath
+
+        if ($CreateBackendKey -and $PSBoundParameters.ContainsKey('StackFolderName')) {
+            $folderName = Split-Path -Path $StackFolderName -Leaf
+            $backendKey = ($folderName -replace '_', '-') + ".terraform.tfstate"
+            _LogMessage -Level 'DEBUG' -Message "Computed backend key name: $backendKey" -InvocationName $MyInvocation.MyCommand.Name
+
+            $InitArgs += "-backend-config=key=$backendKey"
+        }
+
+        _LogMessage -Level 'INFO'  -Message "Running *terraform init ${InitArgs} * in: $CodePath" -InvocationName $inv
 
         & terraform init @InitArgs
         $code = $LASTEXITCODE
@@ -450,13 +462,13 @@ function Convert-TerraformPlanToJson
 ###############################################################################
 Export-ModuleMember -Function `
     Invoke-TerraformValidate, `
-       Invoke-TerraformFmtCheck, `
-       Get-TerraformStackFolders, `
-       Invoke-TerraformInit, `
-       Invoke-TerraformWorkspaceSelect, `
-       Invoke-TerraformPlan, `
-       Invoke-TerraformPlanDestroy, `
-       Invoke-TerraformApply, `
-       Invoke-TerraformDestroy, `
-       Convert-TerraformPlanToJson
+         Invoke-TerraformFmtCheck, `
+         Get-TerraformStackFolders, `
+         Invoke-TerraformInit, `
+         Invoke-TerraformWorkspaceSelect, `
+         Invoke-TerraformPlan, `
+         Invoke-TerraformPlanDestroy, `
+         Invoke-TerraformApply, `
+         Invoke-TerraformDestroy, `
+         Convert-TerraformPlanToJson
 
