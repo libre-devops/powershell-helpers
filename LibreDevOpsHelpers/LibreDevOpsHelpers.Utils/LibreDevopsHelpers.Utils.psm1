@@ -52,7 +52,7 @@ function New-Password
     )
 
     # Helper function to generate a random sequence from the alphabet
-    function Generate-RandomSequence
+    function New-RandomSequence
     {
         param (
             [int] $length,
@@ -104,25 +104,30 @@ function New-Password
 }
 
 # Check if multiple environment variables exist
-function Test-EnvironmentVariablesExist {
+function Test-EnvironmentVariablesExist
+{
     param(
         [string[]]$EnvVars    # names to check
     )
 
     $missing = @()
 
-    foreach ($name in $EnvVars) {
-        if (-not (Get-Item "Env:$name" -ErrorAction SilentlyContinue)) {
+    foreach ($name in $EnvVars)
+    {
+        if (-not (Get-Item "Env:$name" -ErrorAction SilentlyContinue))
+        {
             _LogMessage -Level 'DEBUG' -Message "ENV MISSING: $name" -InvocationName $MyInvocation.MyCommand.Name
             $missing += $name
         }
-        else {
+        else
+        {
             _LogMessage -Level 'DEBUG' -Message "ENV FOUND   : $name" -InvocationName $MyInvocation.MyCommand.Name
         }
     }
 
-    if ($missing.Count) {
-        $msg = "Missing environment variables: $($missing -join ', ')"
+    if ($missing.Count)
+    {
+        $msg = "Missing environment variables: $( $missing -join ', ' )"
         _LogMessage -Level 'ERROR' -Message $msg -InvocationName $MyInvocation.MyCommand.Name
         throw $msg
     }
@@ -200,4 +205,12 @@ function Assert-WhichOs
 
 
 # Export functions
-Export-ModuleMember -Function Test-PathExists, Get-InstalledPrograms, New-Password, Test-EnvironmentVariablesExist, ConvertTo-Boolean, Convert-AzureResourceId, Assert-WhichOs
+Export-ModuleMember -Function `
+    Test-PathExists, `
+     Get-InstalledPrograms, `
+     New-RandomSequence, `
+     New-Password, `
+     Test-EnvironmentVariablesExist, `
+     ConvertTo-Boolean, `
+     Convert-AzureResourceId, `
+     Assert-WhichOs

@@ -1,17 +1,19 @@
 # Logger.psm1  (or wherever your helper lives)
-function _LogMessage {
+function _LogMessage
+{
     [CmdletBinding()]
     param(
-        [ValidateSet('DEBUG','INFO','WARN','ERROR')]
+        [ValidateSet('DEBUG', 'INFO', 'WARN', 'ERROR')]
         [string] $Level,
         [string] $Message,
         [string] $InvocationName
     )
 
     $timestamp = Get-Date -Format 'HH:mm:ss'
-    $prefix    = "$timestamp - [$InvocationName]"
+    $prefix = "$timestamp - [$InvocationName]"
 
-    switch ($Level.ToUpper()) {
+    switch ( $Level.ToUpper())
+    {
         'DEBUG' {
             # Only shows when $DebugPreference -eq 'Continue'
             Write-Debug "$prefix $Message"

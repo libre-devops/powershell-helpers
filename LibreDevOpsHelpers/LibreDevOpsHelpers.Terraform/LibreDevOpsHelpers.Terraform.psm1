@@ -450,13 +450,13 @@ function Convert-TerraformPlanToJson
 ###############################################################################
 Export-ModuleMember -Function `
     Invoke-TerraformValidate, `
-     Invoke-TerraformFmtCheck, `
-     Get-TerraformStackFolders, `
-     Invoke-TerraformInit, `
-     Invoke-TerraformWorkspaceSelect, `
-     Invoke-TerraformPlan, `
-     Invoke-TerraformPlanDestroy, `
-     Invoke-TerraformApply, `
-     Invoke-TerraformDestroy, `
-     Convert-TerraformPlanToJson
+       Invoke-TerraformFmtCheck, `
+       Get-TerraformStackFolders, `
+       Invoke-TerraformInit, `
+       Invoke-TerraformWorkspaceSelect, `
+       Invoke-TerraformPlan, `
+       Invoke-TerraformPlanDestroy, `
+       Invoke-TerraformApply, `
+       Invoke-TerraformDestroy, `
+       Convert-TerraformPlanToJson
 
