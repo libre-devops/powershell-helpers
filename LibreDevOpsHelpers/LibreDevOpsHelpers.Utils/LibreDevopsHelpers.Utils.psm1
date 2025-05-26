@@ -135,37 +135,53 @@ function Test-EnvironmentVariablesExist
 
 
 # Convert string to boolean
-function ConvertTo-Boolean
-{
+function ConvertTo-Boolean {
     param (
         [string]$value
     )
-    try
-    {
+    try {
+        if ([string]::IsNullOrWhiteSpace($value)) {
+            _LogMessage -Level "DEBUG" -Message "Input value '$value' is null or whitespace, treating as `$false`." -InvocationName "$( $MyInvocation.MyCommand.Name )"
+            return $false
+        }
         $valueLower = $value.ToLower()
-        if ($valueLower -eq "true")
-        {
+        if ($valueLower -eq "true") {
             _LogMessage -Level "DEBUG" -Message "Successfully converted '$value' to $true." -InvocationName "$( $MyInvocation.MyCommand.Name )"
             return $true
         }
-        elseif ($valueLower -eq "false")
-        {
+        elseif ($valueLower -eq "false") {
             _LogMessage -Level "DEBUG" -Message "Successfully converted '$value' to $false." -InvocationName "$( $MyInvocation.MyCommand.Name )"
             return $false
         }
-        else
-        {
+        else {
             _LogMessage -Level "ERROR" -Message "Invalid value '$value' provided for boolean conversion. Expected 'true' or 'false'." -InvocationName "$( $MyInvocation.MyCommand.Name )"
             exit 1
         }
     }
-    catch
-    {
+    catch {
         _LogMessage -Level "ERROR" -Message "Error occurred while converting '$value' to boolean: $_" -InvocationName "$( $MyInvocation.MyCommand.Name )"
         exit 1
     }
 }
 
+
+function ConvertTo-Null {
+    param (
+        [string]$value
+    )
+    try {
+        if ([string]::IsNullOrWhiteSpace($value) -or $value -eq "''" -or $value -eq '""') {
+            _LogMessage -Level "DEBUG" -Message "Converted input '$value' to null." -InvocationName "$( $MyInvocation.MyCommand.Name )"
+            return $null
+        } else {
+            _LogMessage -Level "DEBUG" -Message "Input '$value' is not null or empty, returning original value." -InvocationName "$( $MyInvocation.MyCommand.Name )"
+            return $value
+        }
+    } catch {
+        _LogMessage -Level "ERROR" -Message "Error occurred while converting '$value' to null: $_" -InvocationName "$( $MyInvocation.MyCommand.Name )"
+        exit 1
+    }
+}
 
 function Assert-WhichOs
 {
@@ -212,5 +228,6 @@ Export-ModuleMember -Function `
      New-Password, `
      Test-EnvironmentVariablesExist, `
      ConvertTo-Boolean, `
+     ConvertTo-Null, `
      Convert-AzureResourceId, `
      Assert-WhichOs
