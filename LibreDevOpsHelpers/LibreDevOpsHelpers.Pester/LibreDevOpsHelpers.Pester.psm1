@@ -91,15 +91,6 @@ function ShouldMatchCommandOutput
     }
 }
 
-###############################################################################
-# Register the helpers as custom Pester operators (if Pester is loaded)
-###############################################################################
-if (Get-Command -Name Add-ShouldOperator -ErrorAction SilentlyContinue)
-{
-    Add-ShouldOperator -Name ReturnZeroExitCode  -InternalName ShouldReturnZeroExitCode  -Test ${function:ShouldReturnZeroExitCode}
-    Add-ShouldOperator -Name MatchCommandOutput  -InternalName ShouldMatchCommandOutput  -Test ${function:ShouldMatchCommandOutput}
-    _LogMessage -Level 'DEBUG' -Message 'Custom Pester assertion operators registered.' -InvocationName 'ModuleInit'
-}
 
 ###############################################################################
 # Helper – run a single Pester file (mirrors your logging / error style)

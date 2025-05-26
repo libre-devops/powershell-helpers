@@ -29,6 +29,3 @@ function Assert-HomebrewPath {
 }
 
 Export-ModuleMember -Function Assert-HomebrewPath
-
-
-Export-ModuleMember -Function Assert-HomebrewPath
