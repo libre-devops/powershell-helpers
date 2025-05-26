@@ -12,7 +12,7 @@
     RootModule = 'LibreDevOpsHelpers.psm1'
 
     # Version number of this module.
-    ModuleVersion = '0.1.24'
+    ModuleVersion = '0.1.25'
 
     # Supported PSEditions
     # CompatiblePSEditions = @()
@@ -70,6 +70,7 @@
         'LibreDevOpsHelpers.AzureCli/LibreDevopsHelpers.AzureCliLogin.psm1',
         'LibreDevOpsHelpers.Checkov/LibreDevopsHelpers.Checkov.psm1',
         'LibreDevOpsHelpers.Choco/LibreDevopsHelpers.Choco.psm1',
+        'LibreDevOpsHelpers.Github/LibreDevopsHelpers.Github.psm1',
         'LibreDevOpsHelpers.Logger/LibreDevopsHelpers.Logger.psm1',
         'LibreDevOpsHelpers.Pester/LibreDevopsHelpers.Pester.psm1',
         'LibreDevOpsHelpers.Terraform/LibreDevopsHelpers.Terraform.psm1',
