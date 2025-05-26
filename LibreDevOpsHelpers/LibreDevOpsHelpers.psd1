@@ -12,7 +12,7 @@
     RootModule = '.\LibreDevOpsHelpers.psm1'
 
     # Version number of this module.
-    ModuleVersion = '0.1.29'
+    ModuleVersion = '0.1.30'
 
     # Supported PSEditions
     # CompatiblePSEditions = @()
@@ -67,7 +67,7 @@
 
     # Modules to import as nested modules of the module specified in RootModule/ModuleToProcess
     NestedModules = @(
-        'LibreDevOpsHelpers.AzureCli/LibreDevOpsHelpers.AzureCliLogin.psm1',
+        'LibreDevOpsHelpers.AzureCli/LibreDevOpsHelpers.AzureClilogin.psm1',
         'LibreDevOpsHelpers.Checkov/LibreDevOpsHelpers.Checkov.psm1',
         'LibreDevOpsHelpers.Choco/LibreDevOpsHelpers.Choco.psm1',
         'LibreDevOpsHelpers.Github/LibreDevOpsHelpers.Github.psm1',
