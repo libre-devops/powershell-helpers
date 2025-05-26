@@ -1,6 +1,6 @@
 # Define module name and path
-$moduleName = "LibreDevopsHelpers"
-$modulePath = ".\LibreDevopsHelpers"
+$moduleName = "LibreDevOpsHelpers"
+$modulePath = ".\LibreDevOpsHelpers"
 $psd1Path   = "$modulePath\$moduleName.psd1"
 
 # Get API key from environment
