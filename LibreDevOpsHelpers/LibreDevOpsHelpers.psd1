@@ -12,7 +12,7 @@
     RootModule = '.\LibreDevOpsHelpers.psm1'
 
     # Version number of this module.
-    ModuleVersion = '0.1.39'
+    ModuleVersion = '0.1.40'
 
     # Supported PSEditions
     # CompatiblePSEditions = @()
@@ -71,8 +71,10 @@
         'LibreDevOpsHelpers.Checkov/LibreDevOpsHelpers.Checkov.psm1',
         'LibreDevOpsHelpers.Choco/LibreDevOpsHelpers.Choco.psm1',
         'LibreDevOpsHelpers.Github/LibreDevOpsHelpers.Github.psm1',
+        'LibreDevOpsHelpers.Homebrew/LibreDevOpsHelpers.Homebrew.psm1',
         'LibreDevOpsHelpers.Logger/LibreDevOpsHelpers.Logger.psm1',
         'LibreDevOpsHelpers.Pester/LibreDevOpsHelpers.Pester.psm1',
+        'LibreDevOpsHelpers.Tenv/LibreDevOpsHelpers.Tenv.psm1',
         'LibreDevOpsHelpers.Terraform/LibreDevOpsHelpers.Terraform.psm1',
         'LibreDevOpsHelpers.TerraformDocs/LibreDevOpsHelpers.TerraformDocs.psm1',
         'LibreDevOpsHelpers.Utils/LibreDevOpsHelpers.Utils.psm1'
