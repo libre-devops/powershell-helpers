@@ -9,10 +9,10 @@
 @{
 
 # Script module or binary module file associated with this manifest.
-    RootModule = 'LibreDevOpsHelpers.psm1'
+    RootModule = '.\LibreDevOpsHelpers.psm1'
 
     # Version number of this module.
-    ModuleVersion = '0.1.27'
+    ModuleVersion = '0.1.28'
 
     # Supported PSEditions
     # CompatiblePSEditions = @()
