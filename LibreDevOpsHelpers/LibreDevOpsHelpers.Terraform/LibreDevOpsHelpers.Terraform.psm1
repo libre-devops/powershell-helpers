@@ -45,7 +45,6 @@ function Get-TerraformStackFolders
         [string[]]$StacksToRun
     )
 
-    #─────────────────────────────────── pre-checks ────────────────────────────
     if (-not (Test-Path $CodeRoot))
     {
         _LogMessage -Level 'ERROR' -Message "Code root not found: $CodeRoot" `
@@ -53,9 +52,7 @@ function Get-TerraformStackFolders
         throw "Code root not found: $CodeRoot"
     }
 
-    # Match folders like 0_rg or 0-rg
-    $allDirs = Get-ChildItem -Path $CodeRoot -Directory |
-            Where-Object { $_.Name -match '^\d+[-_].+' }
+    $allDirs = Get-ChildItem -Path $CodeRoot -Directory
 
     if (-not $allDirs)
     {
@@ -64,24 +61,41 @@ function Get-TerraformStackFolders
         throw "No stack folders found underneath $CodeRoot"
     }
 
-    #──────────────────────────── discover / index stacks ─────────────────────
     $stackLookup = @{ }
     foreach ($dir in $allDirs)
     {
         if ($dir.Name -match '^(?<order>\d+)[-_](?<name>.+)$')
         {
             $stackLookup[$matches.name.ToLower()] = @{
-                Path  = $dir.FullName
+                Path = $dir.FullName
                 Order = [int]$matches.order
+                IsNumbered = $true
+            }
+        }
+        elseif ($dir.Name -match '^allstackskip[-_](?<rest>.+)$')
+        {
+            $stackName = $matches.rest -replace '^\d+[-_]', ''
+            $stackLookup[$stackName.ToLower()] = @{
+                Path = $dir.FullName
+                Order = 9999
+                IsStackSkip = $true
+                IsNumbered = $false
+            }
+        }
+        else
+        {
+            $stackLookup[$dir.Name.ToLower()] = @{
+                Path = $dir.FullName
+                Order = 9999
+                IsNumbered = $false
             }
         }
     }
 
-    #──────────────────────────── argument sanitisation ────────────────────────
     $requested = @(
     $StacksToRun |
             ForEach-Object { $_.Trim() } |
-            Where-Object  { $_ }         # drop empty entries
+            Where-Object  { $_ }
     )
 
     if ($requested -contains 'all' -and $requested.Count -gt 1)
@@ -93,7 +107,6 @@ function Get-TerraformStackFolders
         $requested = $requested | Where-Object { $_.ToLower() -ne 'all' }
     }
 
-    #──────────────────────────── resolve stack list ───────────────────────────
     $result = [System.Collections.Generic.List[string]]::new()
 
     if (($requested.Count -eq 1) -and ($requested[0].ToLower() -eq 'all'))
@@ -102,6 +115,7 @@ function Get-TerraformStackFolders
                     -InvocationName $MyInvocation.MyCommand.Name
 
         $stackLookup.GetEnumerator() |
+                Where-Object { $_.Value.IsNumbered -eq $true -and (-not ($_.Value.PSObject.Properties['IsStackSkip'] -and $_.Value.IsStackSkip)) } |
                 Sort-Object { $_.Value.Order } |
                 ForEach-Object { [void]$result.Add($_.Value.Path) }
     }
@@ -120,13 +134,13 @@ function Get-TerraformStackFolders
         }
     }
 
-    #────────────────────────────────── debug log ──────────────────────────────
     _LogMessage -Level 'DEBUG' `
         -Message "Stack execution order → $( $result -join ', ' )" `
         -InvocationName $MyInvocation.MyCommand.Name
 
     return $result
 }
+
 
 
 ###############################################################################
@@ -137,12 +151,11 @@ function Invoke-TerraformInit
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$CodePath,
-
-    # Optional additional arguments, e.g. "-backend-config=xyz.tfbackend"
         [string[]]$InitArgs = @(),
         [bool]$CreateBackendKey = $false,
+        [string]$BackendKeyPrefix = $null,
+        [string]$BackendKeySuffix = $null,
         [string]$StackFolderName = $null
-
     )
 
     $inv = $MyInvocation.MyCommand.Name
@@ -158,15 +171,40 @@ function Invoke-TerraformInit
 
         Set-Location $CodePath
 
-        if ($CreateBackendKey -and $PSBoundParameters.ContainsKey('StackFolderName')) {
-            $folderName = Split-Path -Path $StackFolderName -Leaf
-            $backendKey = ($folderName -replace '_', '-') + ".terraform.tfstate"
-            _LogMessage -Level 'DEBUG' -Message "Computed backend key name: $backendKey" -InvocationName $MyInvocation.MyCommand.Name
+        # Determine if a backend key is already specified in InitArgs
+        $backendKeyPassed = $InitArgs | Where-Object { $_ -match '^-backend-config=key=' }
+
+        if ($CreateBackendKey -and (-not $backendKeyPassed))
+        {
+            # Auto-generate backend key
+            if ($StackFolderName)
+            {
+                $folderName = Split-Path -Path $StackFolderName -Leaf
+            }
+            else
+            {
+                # Default to the last folder in CodePath if StackFolderName not provided
+                $folderName = Split-Path -Path $CodePath -Leaf
+            }
+
+            $backendKey = ""
+            if ($BackendKeyPrefix)
+            {
+                $backendKey += "$BackendKeyPrefix-"
+            }
+            $backendKey += ($folderName -replace '_', '-')
+            if ($BackendKeySuffix)
+            {
+                $backendKey += "-$BackendKeySuffix"
+            }
+            $backendKey += ".terraform.tfstate"
+
+            _LogMessage -Level 'DEBUG' -Message "Computed backend key name: $backendKey" -InvocationName $inv
 
             $InitArgs += "-backend-config=key=$backendKey"
         }
 
-        _LogMessage -Level 'INFO'  -Message "Running *terraform init ${InitArgs} * in: $CodePath" -InvocationName $inv
+        _LogMessage -Level 'INFO' -Message "Running *terraform init ${InitArgs}* in: $CodePath" -InvocationName $inv
 
         & terraform init @InitArgs
         $code = $LASTEXITCODE
@@ -187,6 +225,7 @@ function Invoke-TerraformInit
         Set-Location $orig
     }
 }
+
 
 ###############################################################################
 # Run `terraform workspace select -or-create=true <name>`
@@ -464,13 +503,13 @@ function Convert-TerraformPlanToJson
 ###############################################################################
 Export-ModuleMember -Function `
     Invoke-TerraformValidate, `
-         Invoke-TerraformFmtCheck, `
-         Get-TerraformStackFolders, `
-         Invoke-TerraformInit, `
-         Invoke-TerraformWorkspaceSelect, `
-         Invoke-TerraformPlan, `
-         Invoke-TerraformPlanDestroy, `
-         Invoke-TerraformApply, `
-         Invoke-TerraformDestroy, `
-         Convert-TerraformPlanToJson
+          Invoke-TerraformFmtCheck, `
+          Get-TerraformStackFolders, `
+          Invoke-TerraformInit, `
+          Invoke-TerraformWorkspaceSelect, `
+          Invoke-TerraformPlan, `
+          Invoke-TerraformPlanDestroy, `
+          Invoke-TerraformApply, `
+          Invoke-TerraformDestroy, `
+          Convert-TerraformPlanToJson
 

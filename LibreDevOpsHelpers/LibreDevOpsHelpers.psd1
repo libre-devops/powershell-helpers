@@ -12,7 +12,7 @@
     RootModule = '.\LibreDevOpsHelpers.psm1'
 
     # Version number of this module.
-    ModuleVersion = '0.1.40'
+    ModuleVersion = '0.1.97'
 
     # Supported PSEditions
     # CompatiblePSEditions = @()
