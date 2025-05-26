@@ -67,15 +67,15 @@
 
     # Modules to import as nested modules of the module specified in RootModule/ModuleToProcess
     NestedModules = @(
-        'LibreDevOpsHelpers.AzureCli/LibreDevOpsHelpers.AzureClilogin.psm1',
-        'LibreDevOpsHelpers.Checkov/LibreDevOpsHelpers.Checkov.psm1',
-        'LibreDevOpsHelpers.Choco/LibreDevOpsHelpers.Choco.psm1',
-        'LibreDevOpsHelpers.Github/LibreDevOpsHelpers.Github.psm1',
-        'LibreDevOpsHelpers.Logger/LibreDevOpsHelpers.Logger.psm1',
-        'LibreDevOpsHelpers.Pester/LibreDevOpsHelpers.Pester.psm1',
-        'LibreDevOpsHelpers.Terraform/LibreDevOpsHelpers.Terraform.psm1',
-        'LibreDevOpsHelpers.TerraformDocs/LibreDevOpsHelpers.TerraformDocs.psm1',
-        'LibreDevOpsHelpers.Utils/LibreDevOpsHelpers.Utils.psm1'
+        'LibreDevOpsHelpers.AzureCli/LibreDevopsHelpers.AzureClilogin.psm1',
+        'LibreDevOpsHelpers.Checkov/LibreDevopsHelpers.Checkov.psm1',
+        'LibreDevOpsHelpers.Choco/LibreDevopsHelpers.Choco.psm1',
+        'LibreDevOpsHelpers.Github/LibreDevopsHelpers.Github.psm1',
+        'LibreDevOpsHelpers.Logger/LibreDevopsHelpers.Logger.psm1',
+        'LibreDevOpsHelpers.Pester/LibreDevopsHelpers.Pester.psm1',
+        'LibreDevOpsHelpers.Terraform/LibreDevopsHelpers.Terraform.psm1',
+        'LibreDevOpsHelpers.TerraformDocs/LibreDevopsHelpers.TerraformDocs.psm1',
+        'LibreDevOpsHelpers.Utils/LibreDevopsHelpers.Utils.psm1'
     )
 
 
