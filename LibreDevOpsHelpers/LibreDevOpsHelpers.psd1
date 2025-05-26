@@ -12,7 +12,7 @@
     RootModule = 'LibreDevOpsHelpers.psm1'
 
     # Version number of this module.
-    ModuleVersion = '0.1.26'
+    ModuleVersion = '0.1.27'
 
     # Supported PSEditions
     # CompatiblePSEditions = @()
@@ -67,15 +67,15 @@
 
     # Modules to import as nested modules of the module specified in RootModule/ModuleToProcess
     NestedModules = @(
-        'LibreDevOpsHelpers.AzureCli/LibreDevOpsHelpers.AzureCliLogin.psm1',
-        'LibreDevOpsHelpers.Checkov/LibreDevOpsHelpers.Checkov.psm1',
-        'LibreDevOpsHelpers.Choco/LibreDevOpsHelpers.Choco.psm1',
-        'LibreDevOpsHelpers.Github/LibreDevOpsHelpers.Github.psm1',
-        'LibreDevOpsHelpers.Logger/LibreDevOpsHelpers.Logger.psm1',
-        'LibreDevOpsHelpers.Pester/LibreDevOpsHelpers.Pester.psm1',
-        'LibreDevOpsHelpers.Terraform/LibreDevOpsHelpers.Terraform.psm1',
-        'LibreDevOpsHelpers.TerraformDocs/LibreDevOpsHelpers.TerraformDocs.psm1',
-        'LibreDevOpsHelpers.Utils/LibreDevOpsHelpers.Utils.psm1'
+        'LibreDevOpsHelpers/LibreDevOpsHelpers.AzureCli/LibreDevOpsHelpers.AzureCliLogin.psm1',
+        'LibreDevOpsHelpers/LibreDevOpsHelpers.Checkov/LibreDevOpsHelpers.Checkov.psm1',
+        'LibreDevOpsHelpers/LibreDevOpsHelpers.Choco/LibreDevOpsHelpers.Choco.psm1',
+        'LibreDevOpsHelpers/LibreDevOpsHelpers.Github/LibreDevOpsHelpers.Github.psm1',
+        'LibreDevOpsHelpers/LibreDevOpsHelpers.Logger/LibreDevOpsHelpers.Logger.psm1',
+        'LibreDevOpsHelpers/LibreDevOpsHelpers.Pester/LibreDevOpsHelpers.Pester.psm1',
+        'LibreDevOpsHelpers/LibreDevOpsHelpers.Terraform/LibreDevOpsHelpers.Terraform.psm1',
+        'LibreDevOpsHelpers/LibreDevOpsHelpers.TerraformDocs/LibreDevOpsHelpers.TerraformDocs.psm1',
+        'LibreDevOpsHelpers/LibreDevOpsHelpers.Utils/LibreDevOpsHelpers.Utils.psm1'
     )
 
 
