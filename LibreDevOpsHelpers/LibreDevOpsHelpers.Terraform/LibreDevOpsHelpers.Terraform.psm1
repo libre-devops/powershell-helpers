@@ -146,25 +146,22 @@ function Get-TerraformStackFolders
 ###############################################################################
 # Run `terraform init`
 ###############################################################################
-function Invoke-TerraformInit
-{
+function Invoke-TerraformInit {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$CodePath,
         [string[]]$InitArgs = @(),
         [bool]$CreateBackendKey = $false,
-        [string]$BackendKeyPrefix = $null,
+        [string]$BackendKeyPrefix = $null, # If provided, this overrides auto-detection of the repo name
         [string]$BackendKeySuffix = $null,
-        [string]$StackFolderName = $null
+        [string]$StackFolderName = $null   # Optionally specify a fully resolved stack folder path
     )
 
-    $inv = $MyInvocation.MyCommand.Name
+    $inv  = $MyInvocation.MyCommand.Name
     $orig = Get-Location
 
-    try
-    {
-        if (-not (Test-Path $CodePath))
-        {
+    try {
+        if (-not (Test-Path $CodePath)) {
             _LogMessage -Level 'ERROR' -Message "Terraform code not found: $CodePath" -InvocationName $inv
             throw "Terraform code not found: $CodePath"
         }
@@ -174,33 +171,65 @@ function Invoke-TerraformInit
         # Determine if a backend key is already specified in InitArgs
         $backendKeyPassed = $InitArgs | Where-Object { $_ -match '^-backend-config=key=' }
 
-        if ($CreateBackendKey -and (-not $backendKeyPassed))
-        {
-            # Auto-generate backend key
-            if ($StackFolderName)
-            {
-                $folderName = Split-Path -Path $StackFolderName -Leaf
+        if ($CreateBackendKey -and (-not $backendKeyPassed)) {
+            # Get an item for CodePath for further path manipulation
+            $codeItem = Get-Item $CodePath
+
+            # 1. Determine repository name
+            if ($BackendKeyPrefix) {
+                $repoName = $BackendKeyPrefix.ToLower() -replace '\.', '-'
             }
-            else
-            {
-                # Default to the last folder in CodePath if StackFolderName not provided
-                $folderName = Split-Path -Path $CodePath -Leaf
+            else {
+                # Assume repository root is the grand-parent of CodePath
+                if ($codeItem.Parent -and $codeItem.Parent.Parent) {
+                    $repoName = $codeItem.Parent.Parent.Name.ToLower() -replace '\.', '-'
+                }
+                else {
+                    $repoName = $codeItem.Parent.Name.ToLower() -replace '\.', '-'
+                }
             }
 
-            $backendKey = ""
-            if ($BackendKeyPrefix)
-            {
-                $backendKey += "$BackendKeyPrefix-"
+            # 2. Determine the stack part (relative path from repository root)
+            if ($StackFolderName) {
+                $stackPath = (Resolve-Path $StackFolderName).ToString()
             }
-            $backendKey += ($folderName -replace '_', '-')
-            if ($BackendKeySuffix)
-            {
-                $backendKey += "-$BackendKeySuffix"
+            else {
+                $stackPath = (Resolve-Path $CodePath).ToString()
             }
-            $backendKey += ".terraform.tfstate"
+
+            # Get repository root
+            if ($codeItem.Parent -and $codeItem.Parent.Parent) {
+                $repoRoot = $codeItem.Parent.Parent.FullName
+            }
+            else {
+                $repoRoot = $codeItem.Parent.FullName
+            }
+
+            # Compute the relative portion if possible
+            if ($stackPath -like "$repoRoot*") {
+                $stackRelative = $stackPath.Substring($repoRoot.Length)
+            }
+            else {
+                # Fallback: use leaf name of provided stack path
+                $stackRelative = Split-Path -Path $stackPath -Leaf
+            }
+
+            # *** FIX: trim BOTH slash types so no leading separator survives ***
+            $stackRelative = $stackRelative.TrimStart('\','/')
+
+            # Normalise: lowercase → replace separators/underscores/dots with hyphen → trim repeats
+            $stackNormalized = $stackRelative.ToLower() `
+                -replace '[\\\/]+' , '-' `
+                -replace '[_\.]+'  , '-' `
+                -replace '-{2,}'   , '-' `
+                -replace '^-', ''            # extra safety: remove a leading hyphen if any
+
+            # 3. Assemble the backend key
+            $backendKey = "$repoName-$stackNormalized"
+            if ($BackendKeySuffix) { $backendKey += "-$BackendKeySuffix" }
+            $backendKey += ".tfstate"
 
             _LogMessage -Level 'DEBUG' -Message "Computed backend key name: $backendKey" -InvocationName $inv
-
             $InitArgs += "-backend-config=key=$backendKey"
         }
 
@@ -210,18 +239,15 @@ function Invoke-TerraformInit
         $code = $LASTEXITCODE
         _LogMessage -Level 'DEBUG' -Message "terraform init exit-code: $code" -InvocationName $inv
 
-        if ($code -ne 0)
-        {
+        if ($code -ne 0) {
             throw "terraform init failed (exit $code)."
         }
     }
-    catch
-    {
+    catch {
         _LogMessage -Level 'ERROR' -Message $_.Exception.Message -InvocationName $inv
         throw
     }
-    finally
-    {
+    finally {
         Set-Location $orig
     }
 }
@@ -503,13 +529,13 @@ function Convert-TerraformPlanToJson
 ###############################################################################
 Export-ModuleMember -Function `
     Invoke-TerraformValidate, `
-          Invoke-TerraformFmtCheck, `
-          Get-TerraformStackFolders, `
-          Invoke-TerraformInit, `
-          Invoke-TerraformWorkspaceSelect, `
-          Invoke-TerraformPlan, `
-          Invoke-TerraformPlanDestroy, `
-          Invoke-TerraformApply, `
-          Invoke-TerraformDestroy, `
-          Convert-TerraformPlanToJson
+             Invoke-TerraformFmtCheck, `
+             Get-TerraformStackFolders, `
+             Invoke-TerraformInit, `
+             Invoke-TerraformWorkspaceSelect, `
+             Invoke-TerraformPlan, `
+             Invoke-TerraformPlanDestroy, `
+             Invoke-TerraformApply, `
+             Invoke-TerraformDestroy, `
+             Convert-TerraformPlanToJson
 
