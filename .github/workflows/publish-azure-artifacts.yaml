@@ -36,7 +36,7 @@ jobs:
           .\Publish-ToAzureArtifacts.ps1
 
         env:
-          AZDO_ORG_SERVICE_URL: ${{ secrets.AZDO_ORG_NAME }}
+          AZDO_ORG_SERVICE_URL: ${{ secrets.AZDO_ORG_SERVICE_URL }}
           AZDO_PROJECT_NAME: ${{ secrets.AZDO_PROJECT_NAME }}
           AZDO_FEED_NAME: ${{ secrets.AZDO_FEED_NAME }}
           AZDO_ARTIFACTS_PAT: ${{ secrets.AZDO_ARTIFACTS_PAT }}
