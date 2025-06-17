@@ -1,0 +1,42 @@
+name: 'Publish PowerShell Module to Azure Artifacts'
+
+on:  # This will run at 00:00 on the 1st of every month
+  workflow_dispatch:
+    inputs:
+      working_directory:
+        type: string
+        description: What working directory should be passed to the script
+        default: "github_workspace"
+
+jobs:
+  run-script:
+    name: 'Run Script'
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Build
+        id: run-script
+        shell: pwsh
+        run: |
+          if ("${{ inputs.working_directory }}" -eq "github_workspace") 
+          {
+            $workingDirectory = "${{ github.workspace }}"
+          }
+          else
+          {
+            $workingDirectory = "${{ inputs.working_directory }}"
+          }
+          
+          .\Publish-ToAzureArtifacts.ps1
+
+        env:
+          AZDO_ORG_SERVICE_URL: ${{ secrets.AZDO_ORG_NAME }}
+          AZDO_PROJECT_NAME: ${{ secrets.AZDO_PROJECT_NAME }}
+          AZDO_FEED_NAME: ${{ secrets.AZDO_FEED_NAME }}
+          AZDO_ARTIFACTS_PAT: ${{ secrets.AZDO_ARTIFACTS_PAT }}

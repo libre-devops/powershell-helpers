@@ -1,0 +1,41 @@
+name: 'Publish PowerShell Module to GitHub Packages'
+
+on:  # This will run at 00:00 on the 1st of every month
+  workflow_dispatch:
+    inputs:
+      working_directory:
+        type: string
+        description: What working directory should be passed to the script
+        default: "github_workspace"
+
+jobs:
+  run-script:
+    name: 'Run Script'
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Build
+        id: run-script
+        shell: pwsh
+        run: |
+          if ("${{ inputs.working_directory }}" -eq "github_workspace") 
+          {
+            $workingDirectory = "${{ github.workspace }}"
+          }
+          else
+          {
+            $workingDirectory = "${{ inputs.working_directory }}"
+          }
+          
+          .\Publish-ToGitHubPackages.ps1 `
+            -WorkingDirectory $workingDirectory
+
+        env:
+          GITHUB_TOKEN: ${{ secrets.github_token }}
+          GITHUB_REPOSITORY_OWNER: ${{ github.GITHUB_REPOSITORY_OWNER }}
