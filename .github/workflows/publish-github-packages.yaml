@@ -1,6 +1,11 @@
 name: 'Publish PowerShell Module to GitHub Packages'
 
-on:  # This will run at 00:00 on the 1st of every month
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '**/*.psd1'
   workflow_dispatch:
     inputs:
       working_directory:

@@ -1,4 +1,4 @@
-function Check-DockerExists {
+function Assert-DockerExists {
     try {
         $d = Get-Command docker -ErrorAction Stop
         Write-Host "✔ Docker found: $($d.Source)"

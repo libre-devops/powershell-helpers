@@ -1,12 +1,18 @@
 name: 'Publish PowerShell Module to Azure Artifacts'
 
-on:  # This will run at 00:00 on the 1st of every month
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '**/*.psd1'
   workflow_dispatch:
     inputs:
       working_directory:
         type: string
         description: What working directory should be passed to the script
         default: "github_workspace"
+
 
 jobs:
   run-script:
