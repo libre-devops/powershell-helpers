@@ -12,7 +12,7 @@
     RootModule = '.\LibreDevOpsHelpers.psm1'
 
     # Version number of this module.
-    ModuleVersion = '1.0.2'
+    ModuleVersion = '1.0.3'
 
     # Supported PSEditions
     # CompatiblePSEditions = @()
@@ -85,6 +85,7 @@
         'LibreDevOpsHelpers.Python/LibreDevOpsHelpers.Python.psm1',
         'LibreDevOpsHelpers.Tenv/LibreDevOpsHelpers.Tenv.psm1',
         'LibreDevOpsHelpers.Terraform/LibreDevOpsHelpers.Terraform.psm1',
+        'LibreDevOpsHelpers.Terraform.AzureImport/LibreDevOpsHelpers.Terraform.AzureImport.psm1',
         'LibreDevOpsHelpers.TerraformDocs/LibreDevOpsHelpers.TerraformDocs.psm1',
         'LibreDevOpsHelpers.Trivy/LibreDevOpsHelpers.Trivy.psm1',
         'LibreDevOpsHelpers.Utils/LibreDevOpsHelpers.Utils.psm1'
