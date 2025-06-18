@@ -64,6 +64,6 @@ function Push-DockerImage {
 }
 
 Export-ModuleMember -Function `
-    Check-DockerExists, `
+    Assert-DockerExists, `
     Build-DockerImage, `
     Push-DockerImage
