@@ -2,6 +2,11 @@ name: 'Run Docker - Debian'
 
 # Allow run manually
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - '**/*.psd1'
   schedule:
     - cron: '0 0 1 * *'  # This will run at 00:00 on the 1st of every month
   workflow_dispatch:
