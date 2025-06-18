@@ -1,77 +1,86 @@
-name: 'Run Docker - Windows Server Core 2022'
-
-# Allow run manually
+name: Run Docker – Windows Server Core 2022
+################################################################################
+# TRIGGERS
+################################################################################
 on:
+  # Build automatically when any *.psd1 file is pushed to main
   push:
-    branches:
-      - main
-    paths:
-      - '**/*.psd1'
+    branches: [ main ]
+    paths:    [ '**/*.psd1' ]
+
+  # Build automatically at 00:00 UTC on the 1 st of every month
   schedule:
-    - cron: '0 0 1 * *'  # This will run at 00:00 on the 1st of every month
+    - cron: '0 0 1 * *'
+
+  # Manual run
   workflow_dispatch:
     inputs:
       working_directory:
+        description: 'Working directory passed to the script'
         type: string
-        description: What working directory should be passed to the script
-        default: "containers/windows-server2022"
+        default: 'containers/windows-server2022'
+
       build_context:
+        description: 'Docker build context'
         type: string
-        description: "The context of the build"
-        default: "github_workspace"
+        default: 'github_workspace'
+
       docker_image_name:
+        description: 'Docker image name (repo/name)'
         type: string
-        description: 'Docker Image name?'
-        default: "powershell-helpers/windowsserver2022"
+        default: 'powershell-helpers/windowsserver2022'
+
       enable_debug_mode:
+        description: 'Enable -DebugMode in the script'
         type: boolean
-        description: 'Whether debug mode should be enable for within the script'
-        default: true
+        default: false
+
       registry_url:
+        description: 'Container registry URL'
         type: string
-        description: 'The URL of the container registry'
-        default: ghcr.io
+        default: 'ghcr.io'
+
       docker_file_name:
+        description: 'Dockerfile name'
         type: string
-        description: 'Docker file name?'
-        default: "Dockerfile"
+        default: 'Dockerfile'
+
       push_docker_image:
-        type: string
-        description: 'Push docker image?'
+        description: 'Push image after build?'
+        type: string          # Run-Docker.ps1 expects a *string* “true/false”
         default: 'true'
 
+################################################################################
+# JOBS
+################################################################################
 jobs:
   run-script:
-    name: 'Run Script'
-    runs-on: windows-latest
+    name: Run Build Script (Windows)
+    runs-on: windows-latest          # <-- Windows runner
 
     defaults:
       run:
         shell: pwsh
 
+    ########################
+    # 1.  Resolve defaults #
+    ########################
+    env:
+      WD_INPUT:      ${{ github.event.inputs.working_directory     || 'containers/windows-server2022' }}
+      CTX_INPUT:     ${{ github.event.inputs.build_context         || 'github_workspace'               }}
+      IMG_INPUT:     ${{ github.event.inputs.docker_image_name     || 'powershell-helpers/windowsserver2022' }}
+      DEBUG_INPUT:   ${{ github.event.inputs.enable_debug_mode     || 'false'  }}
+      PUSH_INPUT:    ${{ github.event.inputs.push_docker_image     || 'true'   }}
+      DFNAME_INPUT:  ${{ github.event.inputs.docker_file_name      || 'Dockerfile' }}
+      REGURL_INPUT:  ${{ github.event.inputs.registry_url          || 'ghcr.io' }}
+
+    ########################
+    # 2.  Steps            #
+    ########################
     steps:
       - uses: actions/checkout@v3
 
-      - name: Build
-        id: run-script
-        shell: pwsh
+      - name: Build & (optionally) push image
         run: |
-          if ("${{ inputs.working_directory }}" -eq "github_workspace") 
-          {
-            $workingDirectory = "${{ github.workspace }}"
-          }
-          else
-          {
-            $workingDirectory = "${{ inputs.working_directory }}"
-          }
-          
-          .\Run-Docker.ps1 `
-            -WorkingDirectory $workingDirectory `
-            -BuildContext ${{ github.workspace }} `
-            -PushDockerImage ${{ inputs.push_docker_image }} `
-            -DebugMode ${{ inputs.enable_debug_mode }} `
-            -DockerImageName ${{ inputs.docker_image_name }} `
-            -DockerFileName ${{ inputs.docker_file_name }} `
-            -RegistryUsername ${{ secrets.RegistryUsername }} `
-            -RegistryPassword ${{ secrets.RegistryPassword }} `
-            -ImageOrg ${{ github.repository_owner }}
+          # --------------------------------------------------------------
+          # Resolve working direc
