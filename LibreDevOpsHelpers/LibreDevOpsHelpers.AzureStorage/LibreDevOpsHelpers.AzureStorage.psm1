@@ -1,14 +1,14 @@
-if (-not $script:__kvStateCache)
+if (-not $script:__stStateCache)
 {
-    $script:__kvStateCache = @{ }
+    $script:__stStateCache = @{ }
 }
 
-function Set-CurrentIPInKeyVaultAccess
+function Set-CurrentIPInStorageAccess
 {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$ResourceGroup,
-        [Parameter(Mandatory)][string]$KeyVaultName,
+        [Parameter(Mandatory)][string]$StorageAccountName,
         [Parameter(Mandatory)][bool]  $AddRule
     )
 
@@ -22,74 +22,80 @@ function Set-CurrentIPInKeyVaultAccess
             _LogMessage -Level ERROR -Message 'Failed to obtain public IP.' -InvocationName $inv
             return
         }
+        _LogMessage -Level INFO -Message "Current IP: $currentIp" -InvocationName $inv
 
-        # ── cache original state once ────────────────────────────────────
-        if (-not $script:__kvStateCache.ContainsKey($KeyVaultName))
+        # ── cache original state once per account ────────────────────────
+        if (-not $script:__stStateCache.ContainsKey($StorageAccountName))
         {
-            $kv = az keyvault show -g $ResourceGroup -n $KeyVaultName -o json |
+            $sa = az storage account show -g $ResourceGroup -n $StorageAccountName -o json |
                     ConvertFrom-Json
 
-            $script:__kvStateCache[$KeyVaultName] = @{
-                publicNetworkAccess = $kv.publicNetworkAccess
-                defaultAction = $kv.networkAcls.defaultAction
-                bypass = $kv.networkAcls.bypass           # single string
+            $script:__stStateCache[$StorageAccountName] = @{
+                publicNetworkAccess = $sa.publicNetworkAccess             # Enabled / Disabled
+                defaultAction = $sa.networkRuleSet.defaultAction    # Allow / Deny
+                bypass = $sa.networkRuleSet.bypass           # comma-separated string
+                # we **never** overwrite ipRules / vnetRules, so no need to copy them
             }
+            _LogMessage -Level DEBUG -Message "Captured original SA network-ACL state of $StorageAccountName." -InvocationName $inv
         }
 
         if ($AddRule)
         {
-            # ---------- OPEN ------------------------------------------------
-            $origBypass = $script:__kvStateCache[$KeyVaultName].bypass
+            $origBypass = $script:__stStateCache[$StorageAccountName].bypass
 
-            # Build update cmd safely
+            # Enable public access + keep existing bypass list
             $update = @(
-                'keyvault', 'update',
-                '-g', $ResourceGroup, '-n', $KeyVaultName,
+                'storage', 'account', 'update',
+                '-g', $ResourceGroup, '-n', $StorageAccountName,
                 '--public-network-access', 'Enabled',
-                '--default-action', 'Deny'
+                '--default-action', 'Deny'        # open wide; IP rule will still be added
             )
             if ($origBypass)
             {
                 $update += @('--bypass', $origBypass)
             }
-
             az @update | Out-Null
 
             # Add IP only if absent
-            $exists = az keyvault network-rule list `
-                        -g $ResourceGroup -n $KeyVaultName `
+            $exists = az storage account network-rule list `
+                        -g $ResourceGroup -n $StorageAccountName `
                         --query "[?ipAddress=='$currentIp']" -o tsv
             if (-not $exists)
             {
-                az keyvault network-rule add `
-                    -g $ResourceGroup -n $KeyVaultName `
+                az storage account network-rule add `
+                    -g $ResourceGroup -n $StorageAccountName `
                     --ip-address $currentIp | Out-Null
+                _LogMessage -Level INFO -Message "Temporary SA rule added for $currentIp to $StorageAccountName" -InvocationName $inv
             }
-            _LogMessage -Level "INFO" -Message "Temporary KV rule added for $currentIp to $KeyVaultName" -InvocationName $inv
+            else
+            {
+                _LogMessage -Level INFO -Message "SA rule for $currentIp already exists; skipping add." -InvocationName $inv
+            }
         }
         else
         {
-            # ---------- CLOSE ----------------------------------------------
-            az keyvault network-rule remove `
-                -g $ResourceGroup -n $KeyVaultName `
+            az storage account network-rule remove `
+                -g $ResourceGroup -n $StorageAccountName `
                 --ip-address $currentIp 2> $null | Out-Null
+            _LogMessage -Level INFO -Message "Removed temporary SA rule for $currentIp from $StorageAccountName" -InvocationName $inv
 
-            $orig = $script:__kvStateCache[$KeyVaultName]
+            $orig = $script:__stStateCache[$StorageAccountName]
 
             $restore = @(
-                'keyvault', 'update',
-                '-g', $ResourceGroup, '-n', $KeyVaultName,
-                '--public-network-access', 'Disabled',
+                'storage', 'account', 'update',
+                '-g', $ResourceGroup, '-n', $StorageAccountName,
+                '--public-network-access', 'Disabled', # final lock-down
                 '--default-action', 'Deny'
             )
             if ($orig.bypass)
             {
                 $restore += @('--bypass', $orig.bypass)
             }
-
             az @restore | Out-Null
-            _LogMessage -Level "INFO" -Message "Key Vault ACLs restored to $KevaultName." -InvocationName $inv
+            _LogMessage -Level INFO -Message "Storage account: $StorageAccountName - locked down; public access disabled." -InvocationName $inv
         }
+
+        _LogMessage -Level INFO -Message 'Storage-account ACL update complete.' -InvocationName $inv
     }
     catch
     {
@@ -98,4 +104,4 @@ function Set-CurrentIPInKeyVaultAccess
     }
 }
 
-Export-ModuleMember -Function Set-CurrentIPInKeyVaultAccess
+Export-ModuleMember -Function Set-CurrentIPInStorageAccess
