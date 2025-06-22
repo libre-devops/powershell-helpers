@@ -19,10 +19,8 @@ function Build-DockerImage {
         [string] $ImageName                # FULL repo/name:tag
     )
 
-    # resolve paths …
     $fullDockerfilePath = Resolve-Path -Path $DockerfilePath -EA Stop
     $fullContextPath    = Resolve-Path -Path $ContextPath    -EA Stop
-    # (sanity-checks unchanged)
 
     Write-Host "⏳ Building '$ImageName' from Dockerfile: $fullDockerfilePath"
     Write-Host "    context: $fullContextPath"
@@ -40,7 +38,15 @@ function Build-DockerImage {
 
 
 function Push-DockerImage {
-    param([string[]] $FullTagNames)
+    param(
+        [string[]] $FullTagNames,
+        [Parameter(Mandatory)]
+        [string] $RegistryUrl,
+        [Parameter(Mandatory)]
+        [string] $RegistryUsername,
+        [Parameter(Mandatory)]
+        [string] $RegistryPassword
+    )
 
     Write-Host "🔐 Logging in to $RegistryUrl"
     $RegistryPassword | docker login $RegistryUrl -u $RegistryUsername --password-stdin
