@@ -33,7 +33,7 @@
     Description = 'Helper functions for Libre DevOps projects'
 
     # Minimum version of the PowerShell engine required by this module
-    # PowerShellVersion = ''
+    PowerShellVersion = '7.2'
 
     # Name of the PowerShell host required by this module
     # PowerShellHostName = ''
