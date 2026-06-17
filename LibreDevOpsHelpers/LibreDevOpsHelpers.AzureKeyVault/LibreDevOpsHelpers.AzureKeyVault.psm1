@@ -1,101 +1,149 @@
-if (-not $script:__kvStateCache)
-{
-    $script:__kvStateCache = @{ }
+Set-StrictMode -Version Latest
+
+# Remembers each Key Vault's original network configuration so it can be restored
+# after a temporary access rule is removed. Keyed by vault name.
+$script:LdoKeyVaultStateCache = @{ }
+
+function Assert-LdoKvExitCode {
+    # Internal. Throws when the last native command exited non-zero.
+    [CmdletBinding()]
+    [OutputType([void])]
+    param([Parameter(Mandatory)][string]$Operation)
+
+    if ($LASTEXITCODE -ne 0) {
+        throw "$Operation failed with exit code $LASTEXITCODE."
+    }
 }
 
-function Set-CurrentIPInKeyVaultAccess
-{
+function Get-LdoPublicIpAddress {
+    # Internal. Returns the caller's public IPv4 address.
     [CmdletBinding()]
+    [OutputType([string])]
+    param()
+
+    $ip = (Invoke-RestMethod -Uri 'https://checkip.amazonaws.com' -ErrorAction Stop).Trim()
+    if ([string]::IsNullOrWhiteSpace($ip)) {
+        throw 'Failed to determine the public IP address.'
+    }
+    return $ip
+}
+
+function Add-LdoKeyVaultCurrentIpRule {
+    <#
+    .SYNOPSIS
+        Temporarily grants the caller's public IP access to a Key Vault.
+
+    .DESCRIPTION
+        Caches the vault's current network configuration on first use, enables public
+        network access with a default Deny action (preserving any existing bypass), and
+        adds a network rule for the caller's current public IP. Use
+        Remove-LdoKeyVaultCurrentIpRule to revert.
+
+        Requires the Azure CLI to be signed in.
+
+    .PARAMETER ResourceGroup
+        Resource group containing the Key Vault.
+
+    .PARAMETER KeyVaultName
+        Name of the Key Vault.
+
+    .EXAMPLE
+        Add-LdoKeyVaultCurrentIpRule -ResourceGroup rg-prod -KeyVaultName kv-prod
+
+    .OUTPUTS
+        None
+    #>
+    [CmdletBinding()]
+    [OutputType([void])]
     param(
-        [Parameter(Mandatory)][string]$ResourceGroup,
-        [Parameter(Mandatory)][string]$KeyVaultName,
-        [Parameter(Mandatory)][bool]  $AddRule
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$ResourceGroup,
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$KeyVaultName
     )
 
-    $inv = $MyInvocation.MyCommand.Name
-    try
-    {
-        # ── caller IP ─────────────────────────────────────────────────────
-        $currentIp = (Invoke-RestMethod -Uri 'https://checkip.amazonaws.com').Trim()
-        if (-not $currentIp)
-        {
-            _LogMessage -Level ERROR -Message 'Failed to obtain public IP.' -InvocationName $inv
-            return
-        }
+    $ip = Get-LdoPublicIpAddress
 
-        # ── cache original state once ────────────────────────────────────
-        if (-not $script:__kvStateCache.ContainsKey($KeyVaultName))
-        {
-            $kv = az keyvault show -g $ResourceGroup -n $KeyVaultName -o json |
-                    ConvertFrom-Json
-
-            $script:__kvStateCache[$KeyVaultName] = @{
-                publicNetworkAccess = $kv.publicNetworkAccess
-                defaultAction = $kv.networkAcls.defaultAction
-                bypass = $kv.networkAcls.bypass           # single string
-            }
-        }
-
-        if ($AddRule)
-        {
-            # ---------- OPEN ------------------------------------------------
-            $origBypass = $script:__kvStateCache[$KeyVaultName].bypass
-
-            # Build update cmd safely
-            $update = @(
-                'keyvault', 'update',
-                '-g', $ResourceGroup, '-n', $KeyVaultName,
-                '--public-network-access', 'Enabled',
-                '--default-action', 'Deny'
-            )
-            if ($origBypass)
-            {
-                $update += @('--bypass', $origBypass)
-            }
-
-            az @update | Out-Null
-
-            # Add IP only if absent
-            $exists = az keyvault network-rule list `
-                        -g $ResourceGroup -n $KeyVaultName `
-                        --query "[?ipAddress=='$currentIp']" -o tsv
-            if (-not $exists)
-            {
-                az keyvault network-rule add `
-                    -g $ResourceGroup -n $KeyVaultName `
-                    --ip-address $currentIp | Out-Null
-            }
-            _LogMessage -Level "INFO" -Message "Temporary KV rule added for $currentIp to $KeyVaultName" -InvocationName $inv
-        }
-        else
-        {
-            # ---------- CLOSE ----------------------------------------------
-            az keyvault network-rule remove `
-                -g $ResourceGroup -n $KeyVaultName `
-                --ip-address $currentIp 2> $null | Out-Null
-
-            $orig = $script:__kvStateCache[$KeyVaultName]
-
-            $restore = @(
-                'keyvault', 'update',
-                '-g', $ResourceGroup, '-n', $KeyVaultName,
-                '--public-network-access', 'Disabled',
-                '--default-action', 'Deny'
-            )
-            if ($orig.bypass)
-            {
-                $restore += @('--bypass', $orig.bypass)
-            }
-
-            az @restore | Out-Null
-            _LogMessage -Level "INFO" -Message "Key Vault ACLs restored to $KevaultName." -InvocationName $inv
+    if (-not $script:LdoKeyVaultStateCache.ContainsKey($KeyVaultName)) {
+        $vault = az keyvault show -g $ResourceGroup -n $KeyVaultName -o json | ConvertFrom-Json
+        Assert-LdoKvExitCode -Operation "az keyvault show ($KeyVaultName)"
+        $script:LdoKeyVaultStateCache[$KeyVaultName] = @{
+            PublicNetworkAccess = $vault.publicNetworkAccess
+            DefaultAction = $vault.networkAcls.defaultAction
+            Bypass = $vault.networkAcls.bypass
         }
     }
-    catch
-    {
-        _LogMessage -Level ERROR -Message "An error occurred: $_" -InvocationName $inv
-        throw
+
+    $cached = $script:LdoKeyVaultStateCache[$KeyVaultName]
+    $update = @('keyvault', 'update', '-g', $ResourceGroup, '-n', $KeyVaultName,
+        '--public-network-access', 'Enabled', '--default-action', 'Deny')
+    if ($cached.Bypass) { $update += @('--bypass', $cached.Bypass) }
+    az @update | Out-Null
+    Assert-LdoKvExitCode -Operation "az keyvault update ($KeyVaultName)"
+
+    $existing = az keyvault network-rule list -g $ResourceGroup -n $KeyVaultName --query "[?ipAddress=='$ip']" -o tsv
+    if (-not $existing) {
+        az keyvault network-rule add -g $ResourceGroup -n $KeyVaultName --ip-address $ip | Out-Null
+        Assert-LdoKvExitCode -Operation "az keyvault network-rule add ($KeyVaultName)"
     }
+
+    Write-LdoLog -Level INFO -Message "Added temporary Key Vault rule for $ip on $KeyVaultName."
 }
 
-Export-ModuleMember -Function Set-CurrentIPInKeyVaultAccess
+function Remove-LdoKeyVaultCurrentIpRule {
+    <#
+    .SYNOPSIS
+        Removes the caller's temporary Key Vault access rule and restores prior settings.
+
+    .DESCRIPTION
+        Removes the network rule for the caller's current public IP and restores the vault's
+        network configuration captured by Add-LdoKeyVaultCurrentIpRule. If no cached state
+        exists, the vault is left with public network access disabled and a default Deny.
+
+        Requires the Azure CLI to be signed in.
+
+    .PARAMETER ResourceGroup
+        Resource group containing the Key Vault.
+
+    .PARAMETER KeyVaultName
+        Name of the Key Vault.
+
+    .EXAMPLE
+        Remove-LdoKeyVaultCurrentIpRule -ResourceGroup rg-prod -KeyVaultName kv-prod
+
+    .OUTPUTS
+        None
+    #>
+    [CmdletBinding()]
+    [OutputType([void])]
+    param(
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$ResourceGroup,
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$KeyVaultName
+    )
+
+    $ip = Get-LdoPublicIpAddress
+
+    az keyvault network-rule remove -g $ResourceGroup -n $KeyVaultName --ip-address $ip 2>$null | Out-Null
+
+    if ($script:LdoKeyVaultStateCache.ContainsKey($KeyVaultName)) {
+        $cached = $script:LdoKeyVaultStateCache[$KeyVaultName]
+        $publicAccess = if ($cached.PublicNetworkAccess) { $cached.PublicNetworkAccess } else { 'Disabled' }
+        $defaultAction = if ($cached.DefaultAction) { $cached.DefaultAction } else { 'Deny' }
+    }
+    else {
+        $publicAccess = 'Disabled'
+        $defaultAction = 'Deny'
+        $cached = @{ Bypass = $null }
+    }
+
+    $restore = @('keyvault', 'update', '-g', $ResourceGroup, '-n', $KeyVaultName,
+        '--public-network-access', $publicAccess, '--default-action', $defaultAction)
+    if ($cached.Bypass) { $restore += @('--bypass', $cached.Bypass) }
+    az @restore | Out-Null
+    Assert-LdoKvExitCode -Operation "az keyvault update ($KeyVaultName)"
+
+    $script:LdoKeyVaultStateCache.Remove($KeyVaultName) | Out-Null
+    Write-LdoLog -Level INFO -Message "Removed temporary rule and restored network ACLs on $KeyVaultName."
+}
+
+Export-ModuleMember -Function `
+    Add-LdoKeyVaultCurrentIpRule, `
+    Remove-LdoKeyVaultCurrentIpRule
