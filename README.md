@@ -170,10 +170,8 @@ The repository root contains orchestration scripts that import the module and ca
 - `Terraform-Import.ps1` plans, converts to JSON, and imports existing Azure resources.
 - `Terraform-Release.ps1` formats code, sorts variables and outputs, regenerates the README, and
   optionally tags a release.
-- `Install-LibreDevOpsHelpers.ps1` installs the module from an Azure DevOps Artifacts feed.
 - `Delete-Modules.ps1` resets and reinstalls the module from the PowerShell Gallery.
-- `Publish-ToPSGallery.ps1`, `Publish-ToAzureArtifacts.ps1`, `Publish-ToGitHubPackages.ps1`
-  publish the module.
+- `Publish-ToPSGallery.ps1` and `Publish-ToGitHubPackages.ps1` publish the module.
 
 ## Development
 

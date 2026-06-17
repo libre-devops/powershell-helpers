@@ -14,8 +14,21 @@ on:
         default: "github_workspace"
 
 jobs:
+  test:
+    name: 'Lint and Test'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run analyzer and tests
+        run: ./Invoke-Tests.ps1
+
   run-script:
     name: 'Run Script'
+    needs: test
     runs-on: ubuntu-latest
 
     defaults:
