@@ -1,79 +1,149 @@
-# Run 'terraform validate'
-function Invoke-TerraformValidate
-{
-    param (
-        [string]$CodePath
-    )
+Set-StrictMode -Version Latest
 
-    if (-not (Test-Path $CodePath))
-    {
-        _LogMessage -Level "ERROR" -Message "Terraform code not found: $TemplatePath" -InvocationName "$( $MyInvocation.MyCommand.Name )"
-        throw "Terraform code not found: $CodePath"
-    }
-
-    _LogMessage -Level "INFO" -Message "Validating Terraform: $CodePath" -InvocationName "$( $MyInvocation.MyCommand.Name )"
-    Set-Location $CodePath
-    & terraform validate
-}
-
-# Run 'terraform validate'
-function Invoke-TerraformFmtCheck
-{
-    param (
-        [string]$CodePath
-    )
-
-    if (-not (Test-Path $CodePath))
-    {
-        _LogMessage -Level "ERROR" -Message "Terraform code not found: $TemplatePath" -InvocationName "$( $MyInvocation.MyCommand.Name )"
-        throw "Terraform code not found: $CodePath"
-    }
-
-    _LogMessage -Level "INFO" -Message "Validating Terraform: $CodePath" -InvocationName "$( $MyInvocation.MyCommand.Name )"
-    Set-Location $CodePath
-    & terraform fmt -check
-}
-
-function Get-TerraformStackFolders
-{
+function Assert-LdoTerraformExitCode {
+    # Internal. Throws when the last native command exited non-zero.
     [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]
-        [string]  $CodeRoot,
+    [OutputType([void])]
+    param([Parameter(Mandatory)][string]$Operation)
 
-        [Parameter(Mandatory)]
-        [string[]]$StacksToRun
+    if ($LASTEXITCODE -ne 0) {
+        throw "$Operation failed with exit code $LASTEXITCODE."
+    }
+}
+
+function Invoke-LdoTerraformValidate {
+    <#
+    .SYNOPSIS
+        Runs 'terraform validate' against a Terraform configuration folder.
+
+    .DESCRIPTION
+        Changes into the configuration folder, runs terraform validate, and throws when the
+        command reports an error. The original working directory is always restored.
+
+    .PARAMETER CodePath
+        Path to the Terraform configuration folder.
+
+    .EXAMPLE
+        Invoke-LdoTerraformValidate -CodePath ./terraform
+
+    .OUTPUTS
+        None
+    #>
+    [CmdletBinding()]
+    [OutputType([void])]
+    param(
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$CodePath
     )
 
-    if (-not (Test-Path $CodeRoot))
-    {
-        _LogMessage -Level 'ERROR' -Message "Code root not found: $CodeRoot" `
-                    -InvocationName $MyInvocation.MyCommand.Name
+    if (-not (Test-Path $CodePath)) {
+        throw "Terraform code not found: $CodePath"
+    }
+
+    $orig = Get-Location
+    try {
+        Set-Location $CodePath
+        Write-LdoLog -Level INFO -Message "Validating Terraform: $CodePath"
+        & terraform validate
+        Assert-LdoTerraformExitCode -Operation 'terraform validate'
+    }
+    finally {
+        Set-Location $orig
+    }
+}
+
+function Invoke-LdoTerraformFmtCheck {
+    <#
+    .SYNOPSIS
+        Runs 'terraform fmt -check' against a Terraform configuration folder.
+
+    .DESCRIPTION
+        Changes into the configuration folder, runs terraform fmt -check, and throws when any
+        file is not correctly formatted. The original working directory is always restored.
+
+    .PARAMETER CodePath
+        Path to the Terraform configuration folder.
+
+    .EXAMPLE
+        Invoke-LdoTerraformFmtCheck -CodePath ./terraform
+
+    .OUTPUTS
+        None
+    #>
+    [CmdletBinding()]
+    [OutputType([void])]
+    param(
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$CodePath
+    )
+
+    if (-not (Test-Path $CodePath)) {
+        throw "Terraform code not found: $CodePath"
+    }
+
+    $orig = Get-Location
+    try {
+        Set-Location $CodePath
+        Write-LdoLog -Level INFO -Message "Checking Terraform formatting: $CodePath"
+        & terraform fmt -check -recursive
+        Assert-LdoTerraformExitCode -Operation 'terraform fmt -check'
+    }
+    finally {
+        Set-Location $orig
+    }
+}
+
+function Get-LdoTerraformStackFolders {
+    <#
+    .SYNOPSIS
+        Resolves an ordered list of Terraform stack folders to run.
+
+    .DESCRIPTION
+        Inspects the immediate child folders of a code root and builds a lookup keyed by stack
+        name. Folders named like '01-network' are treated as numbered stacks with an execution
+        order. Passing 'all' returns every numbered stack in numeric order, otherwise the named
+        stacks are returned in the order requested.
+
+    .PARAMETER CodeRoot
+        Folder containing the stack subfolders.
+
+    .PARAMETER StacksToRun
+        One or more stack names, or the single value 'all'.
+
+    .EXAMPLE
+        Get-LdoTerraformStackFolders -CodeRoot ./stacks -StacksToRun all
+
+    .EXAMPLE
+        Get-LdoTerraformStackFolders -CodeRoot ./stacks -StacksToRun network,compute
+
+    .OUTPUTS
+        System.String. The resolved stack folder paths in execution order.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessage('PSUseSingularNouns', '', Justification = 'Returns multiple stack folders.')]
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param(
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$CodeRoot,
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string[]]$StacksToRun
+    )
+
+    if (-not (Test-Path $CodeRoot)) {
         throw "Code root not found: $CodeRoot"
     }
 
     $allDirs = Get-ChildItem -Path $CodeRoot -Directory
-
-    if (-not $allDirs)
-    {
-        _LogMessage -Level 'ERROR' -Message "No stack folders found underneath $CodeRoot" `
-                    -InvocationName $MyInvocation.MyCommand.Name
+    if (-not $allDirs) {
         throw "No stack folders found underneath $CodeRoot"
     }
 
     $stackLookup = @{ }
-    foreach ($dir in $allDirs)
-    {
-        if ($dir.Name -match '^(?<order>\d+)[-_](?<name>.+)$')
-        {
+    foreach ($dir in $allDirs) {
+        if ($dir.Name -match '^(?<order>\d+)[-_](?<name>.+)$') {
             $stackLookup[$matches.name.ToLower()] = @{
                 Path = $dir.FullName
                 Order = [int]$matches.order
                 IsNumbered = $true
             }
         }
-        elseif ($dir.Name -match '^allstackskip[-_](?<rest>.+)$')
-        {
+        elseif ($dir.Name -match '^allstackskip[-_](?<rest>.+)$') {
             $stackName = $matches.rest -replace '^\d+[-_]', ''
             $stackLookup[$stackName.ToLower()] = @{
                 Path = $dir.FullName
@@ -82,8 +152,7 @@ function Get-TerraformStackFolders
                 IsNumbered = $false
             }
         }
-        else
-        {
+        else {
             $stackLookup[$dir.Name.ToLower()] = @{
                 Path = $dir.FullName
                 Order = 9999
@@ -93,103 +162,108 @@ function Get-TerraformStackFolders
     }
 
     $requested = @(
-    $StacksToRun |
+        $StacksToRun |
             ForEach-Object { $_.Trim() } |
-            Where-Object  { $_ }
+            Where-Object { $_ }
     )
 
-    if ($requested -contains 'all' -and $requested.Count -gt 1)
-    {
-        _LogMessage -Level 'WARN' `
-            -Message "'all' cannot be combined with explicit stack names – ignoring 'all' and using the named stacks only." `
-            -InvocationName $MyInvocation.MyCommand.Name
-
+    if ($requested -contains 'all' -and $requested.Count -gt 1) {
+        Write-LdoLog -Level WARN -Message "'all' cannot be combined with explicit stack names; ignoring 'all' and using the named stacks only."
         $requested = $requested | Where-Object { $_.ToLower() -ne 'all' }
     }
 
     $result = [System.Collections.Generic.List[string]]::new()
 
-    if (($requested.Count -eq 1) -and ($requested[0].ToLower() -eq 'all'))
-    {
-        _LogMessage -Level 'INFO' -Message 'Running ALL stacks (numeric order)' `
-                    -InvocationName $MyInvocation.MyCommand.Name
-
+    if (($requested.Count -eq 1) -and ($requested[0].ToLower() -eq 'all')) {
+        Write-LdoLog -Level INFO -Message 'Running ALL stacks in numeric order.'
         $stackLookup.GetEnumerator() |
-                Where-Object { $_.Value.IsNumbered -eq $true -and (-not ($_.Value.PSObject.Properties['IsStackSkip'] -and $_.Value.IsStackSkip)) } |
-                Sort-Object { $_.Value.Order } |
-                ForEach-Object { [void]$result.Add($_.Value.Path) }
+            Where-Object { $_.Value.IsNumbered -eq $true -and (-not ($_.Value.PSObject.Properties['IsStackSkip'] -and $_.Value.IsStackSkip)) } |
+            Sort-Object { $_.Value.Order } |
+            ForEach-Object { [void]$result.Add($_.Value.Path) }
     }
-    else
-    {
-        foreach ($stack in $requested)
-        {
+    else {
+        foreach ($stack in $requested) {
             $key = $stack.ToLower()
-            if (-not $stackLookup.ContainsKey($key))
-            {
-                _LogMessage -Level 'ERROR' -Message "Stack '$stack' not found under $CodeRoot" `
-                            -InvocationName $MyInvocation.MyCommand.Name
+            if (-not $stackLookup.ContainsKey($key)) {
                 throw "Stack '$stack' not found under $CodeRoot"
             }
             [void]$result.Add($stackLookup[$key].Path)
         }
     }
 
-    _LogMessage -Level 'DEBUG' `
-        -Message "Stack execution order → $( $result -join ', ' )" `
-        -InvocationName $MyInvocation.MyCommand.Name
-
-    return $result
+    Write-LdoLog -Level DEBUG -Message "Stack execution order: $($result -join ', ')"
+    return $result.ToArray()
 }
 
+function Invoke-LdoTerraformInit {
+    <#
+    .SYNOPSIS
+        Runs 'terraform init', optionally computing a deterministic backend state key.
 
+    .DESCRIPTION
+        Runs terraform init in a configuration folder. When -CreateBackendKey is set and no
+        backend key is already supplied in -InitArgs, a key of the form
+        <repo>-<stack>[-<suffix>].tfstate is computed from the folder layout and appended as a
+        -backend-config=key= argument. The original working directory is always restored.
 
-###############################################################################
-# Run `terraform init`
-###############################################################################
-function Invoke-TerraformInit {
+    .PARAMETER CodePath
+        Path to the Terraform configuration folder.
+
+    .PARAMETER InitArgs
+        Additional arguments passed through to terraform init.
+
+    .PARAMETER CreateBackendKey
+        When set, computes and appends a backend state key unless one is already present.
+
+    .PARAMETER BackendKeyPrefix
+        Overrides the auto-detected repository name used as the key prefix.
+
+    .PARAMETER BackendKeySuffix
+        Optional suffix appended to the computed backend key.
+
+    .PARAMETER StackFolderName
+        Optional fully resolved stack folder path used to compute the stack portion of the key.
+
+    .EXAMPLE
+        Invoke-LdoTerraformInit -CodePath ./stacks/01-network -CreateBackendKey
+
+    .OUTPUTS
+        None
+    #>
     [CmdletBinding()]
+    [OutputType([void])]
     param(
-        [Parameter(Mandatory)][string]$CodePath,
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$CodePath,
         [string[]]$InitArgs = @(),
-        [bool]$CreateBackendKey = $false,
-        [string]$BackendKeyPrefix = $null, # If provided, this overrides auto-detection of the repo name
-        [string]$BackendKeySuffix = $null,
-        [string]$StackFolderName = $null   # Optionally specify a fully resolved stack folder path
+        [switch]$CreateBackendKey,
+        [string]$BackendKeyPrefix,
+        [string]$BackendKeySuffix,
+        [string]$StackFolderName
     )
 
-    $inv  = $MyInvocation.MyCommand.Name
     $orig = Get-Location
-
     try {
         if (-not (Test-Path $CodePath)) {
-            _LogMessage -Level 'ERROR' -Message "Terraform code not found: $CodePath" -InvocationName $inv
             throw "Terraform code not found: $CodePath"
         }
 
         Set-Location $CodePath
 
-        # Determine if a backend key is already specified in InitArgs
         $backendKeyPassed = $InitArgs | Where-Object { $_ -match '^-backend-config=key=' }
 
         if ($CreateBackendKey -and (-not $backendKeyPassed)) {
-            # Get an item for CodePath for further path manipulation
             $codeItem = Get-Item $CodePath
 
-            # 1. Determine repository name
             if ($BackendKeyPrefix) {
                 $repoName = $BackendKeyPrefix.ToLower() -replace '\.', '-'
             }
+            elseif ($codeItem.Parent -and $codeItem.Parent.Parent) {
+                $repoName = $codeItem.Parent.Parent.Name.ToLower() -replace '\.', '-'
+            }
             else {
-                # Assume repository root is the grand-parent of CodePath
-                if ($codeItem.Parent -and $codeItem.Parent.Parent) {
-                    $repoName = $codeItem.Parent.Parent.Name.ToLower() -replace '\.', '-'
-                }
-                else {
-                    $repoName = $codeItem.Parent.Name.ToLower() -replace '\.', '-'
-                }
+                $repoName = $codeItem.Parent.Name.ToLower() -replace '\.', '-'
             }
 
-            # 2. Determine the stack part (relative path from repository root)
             if ($StackFolderName) {
                 $stackPath = (Resolve-Path $StackFolderName).ToString()
             }
@@ -197,7 +271,6 @@ function Invoke-TerraformInit {
                 $stackPath = (Resolve-Path $CodePath).ToString()
             }
 
-            # Get repository root
             if ($codeItem.Parent -and $codeItem.Parent.Parent) {
                 $repoRoot = $codeItem.Parent.Parent.FullName
             }
@@ -205,337 +278,381 @@ function Invoke-TerraformInit {
                 $repoRoot = $codeItem.Parent.FullName
             }
 
-            # Compute the relative portion if possible
             if ($stackPath -like "$repoRoot*") {
                 $stackRelative = $stackPath.Substring($repoRoot.Length)
             }
             else {
-                # Fallback: use leaf name of provided stack path
                 $stackRelative = Split-Path -Path $stackPath -Leaf
             }
 
-            # *** FIX: trim BOTH slash types so no leading separator survives ***
-            $stackRelative = $stackRelative.TrimStart('\','/')
+            $stackRelative = $stackRelative.TrimStart('\', '/')
 
-            # Normalise: lowercase → replace separators/underscores/dots with hyphen → trim repeats
             $stackNormalized = $stackRelative.ToLower() `
-                -replace '[\\\/]+' , '-' `
-                -replace '[_\.]+'  , '-' `
-                -replace '-{2,}'   , '-' `
-                -replace '^-', ''            # extra safety: remove a leading hyphen if any
+                -replace '[\\\/]+', '-' `
+                -replace '[_\.]+', '-' `
+                -replace '-{2,}', '-' `
+                -replace '^-', ''
 
-            # 3. Assemble the backend key
             $backendKey = "$repoName-$stackNormalized"
             if ($BackendKeySuffix) { $backendKey += "-$BackendKeySuffix" }
-            $backendKey += ".tfstate"
+            $backendKey += '.tfstate'
 
-            _LogMessage -Level 'DEBUG' -Message "Computed backend key name: $backendKey" -InvocationName $inv
+            Write-LdoLog -Level DEBUG -Message "Computed backend key name: $backendKey"
             $InitArgs += "-backend-config=key=$backendKey"
         }
 
-        _LogMessage -Level 'INFO' -Message "Running *terraform init ${InitArgs}* in: $CodePath" -InvocationName $inv
-
+        Write-LdoLog -Level INFO -Message "Running terraform init in: $CodePath"
         & terraform init @InitArgs
-        $code = $LASTEXITCODE
-        _LogMessage -Level 'DEBUG' -Message "terraform init exit-code: $code" -InvocationName $inv
-
-        if ($code -ne 0) {
-            throw "terraform init failed (exit $code)."
-        }
-    }
-    catch {
-        _LogMessage -Level 'ERROR' -Message $_.Exception.Message -InvocationName $inv
-        throw
+        Assert-LdoTerraformExitCode -Operation 'terraform init'
     }
     finally {
         Set-Location $orig
     }
 }
 
+function Invoke-LdoTerraformWorkspaceSelect {
+    <#
+    .SYNOPSIS
+        Selects a Terraform workspace, creating it if it does not exist.
 
-###############################################################################
-# Run `terraform workspace select -or-create=true <name>`
-###############################################################################
-function Invoke-TerraformWorkspaceSelect
-{
+    .DESCRIPTION
+        Runs 'terraform workspace select -or-create=true' in a configuration folder and throws
+        on failure. The original working directory is always restored.
+
+    .PARAMETER CodePath
+        Path to the Terraform configuration folder.
+
+    .PARAMETER WorkspaceName
+        Name of the workspace to select or create.
+
+    .EXAMPLE
+        Invoke-LdoTerraformWorkspaceSelect -CodePath ./terraform -WorkspaceName dev
+
+    .OUTPUTS
+        None
+    #>
     [CmdletBinding()]
+    [OutputType([void])]
     param(
-        [Parameter(Mandatory)][string]$CodePath,
-        [Parameter(Mandatory)][string]$WorkspaceName
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$CodePath,
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$WorkspaceName
     )
 
-    $inv = $MyInvocation.MyCommand.Name
     $orig = Get-Location
-
-    try
-    {
-        if (-not (Test-Path $CodePath))
-        {
-            _LogMessage -Level 'ERROR' -Message "Terraform code not found: $CodePath" -InvocationName $inv
+    try {
+        if (-not (Test-Path $CodePath)) {
             throw "Terraform code not found: $CodePath"
         }
 
-        _LogMessage -Level 'INFO' -Message "Selecting workspace '$WorkspaceName' (auto-create) in $CodePath" -InvocationName $inv
+        Write-LdoLog -Level INFO -Message "Selecting workspace '$WorkspaceName' (auto-create) in $CodePath"
         Set-Location $CodePath
-
         & terraform workspace select -or-create=true $WorkspaceName
-        $code = $LASTEXITCODE
-        _LogMessage -Level 'DEBUG' -Message "terraform workspace select exit-code: $code" -InvocationName $inv
-
-        if ($code -ne 0)
-        {
-            throw "workspace selection failed (exit $code)."
-        }
+        Assert-LdoTerraformExitCode -Operation 'terraform workspace select'
     }
-    catch
-    {
-        _LogMessage -Level 'ERROR' -Message $_.Exception.Message -InvocationName $inv
-        throw
-    }
-    finally
-    {
+    finally {
         Set-Location $orig
     }
 }
 
-function Invoke-TerraformPlan
-{
+function Invoke-LdoTerraformPlan {
+    <#
+    .SYNOPSIS
+        Runs 'terraform plan' and writes a binary plan file.
+
+    .DESCRIPTION
+        Runs terraform plan with -input=false and -out, then throws on failure. The original
+        working directory is always restored.
+
+    .PARAMETER CodePath
+        Path to the Terraform configuration folder.
+
+    .PARAMETER PlanFile
+        Output plan file name. Defaults to tfplan.plan.
+
+    .PARAMETER PlanArgs
+        Additional arguments passed through to terraform plan.
+
+    .EXAMPLE
+        Invoke-LdoTerraformPlan -CodePath ./terraform -PlanArgs '-var-file=dev.tfvars'
+
+    .OUTPUTS
+        None
+    #>
     [CmdletBinding()]
+    [OutputType([void])]
     param(
-        [Parameter(Mandatory)][string] $CodePath,
-        [string]  $PlanFile = 'tfplan.plan',
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$CodePath,
+        [string]$PlanFile = 'tfplan.plan',
         [string[]]$PlanArgs = @()
     )
 
-    $inv = $MyInvocation.MyCommand.Name
     $orig = Get-Location
-    try
-    {
-        if (-not (Test-Path $CodePath))
-        {
+    try {
+        if (-not (Test-Path $CodePath)) {
             throw "Terraform code not found: $CodePath"
         }
 
-        _LogMessage -Level 'INFO' -Message "terraform plan → $PlanFile" -InvocationName $inv
+        Write-LdoLog -Level INFO -Message "terraform plan to $PlanFile"
         Set-Location $CodePath
 
         $tfArgs = @('plan', '-input=false', '-out', $PlanFile) + $PlanArgs
         & terraform @tfArgs
-        if ($LASTEXITCODE)
-        {
-            throw "terraform plan failed ($LASTEXITCODE)"
-        }
+        Assert-LdoTerraformExitCode -Operation 'terraform plan'
     }
-    finally
-    {
+    finally {
         Set-Location $orig
     }
 }
 
-function Invoke-TerraformPlanDestroy
-{
+function Invoke-LdoTerraformPlanDestroy {
+    <#
+    .SYNOPSIS
+        Runs 'terraform plan -destroy' and writes a binary plan file.
+
+    .DESCRIPTION
+        Runs terraform plan -destroy with -input=false and -out, then throws on failure. The
+        original working directory is always restored.
+
+    .PARAMETER CodePath
+        Path to the Terraform configuration folder.
+
+    .PARAMETER PlanFile
+        Output plan file name. Defaults to tfplan.plan.destroy.
+
+    .PARAMETER PlanArgs
+        Additional arguments passed through to terraform plan.
+
+    .EXAMPLE
+        Invoke-LdoTerraformPlanDestroy -CodePath ./terraform
+
+    .OUTPUTS
+        None
+    #>
     [CmdletBinding()]
+    [OutputType([void])]
     param(
-        [Parameter(Mandatory)][string] $CodePath,
-        [string]  $PlanFile = 'tfplan.plan.destroy',
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$CodePath,
+        [string]$PlanFile = 'tfplan.plan.destroy',
         [string[]]$PlanArgs = @()
     )
 
-    $inv = $MyInvocation.MyCommand.Name
     $orig = Get-Location
-    try
-    {
-        if (-not (Test-Path $CodePath))
-        {
+    try {
+        if (-not (Test-Path $CodePath)) {
             throw "Terraform code not found: $CodePath"
         }
 
-        _LogMessage -Level 'INFO' -Message "terraform plan -destroy → $PlanFile" -InvocationName $inv
+        Write-LdoLog -Level INFO -Message "terraform plan -destroy to $PlanFile"
         Set-Location $CodePath
 
         $tfArgs = @('plan', '-destroy', '-input=false', '-out', $PlanFile) + $PlanArgs
         & terraform @tfArgs
-        if ($LASTEXITCODE)
-        {
-            throw "terraform plan -destroy failed ($LASTEXITCODE)"
-        }
+        Assert-LdoTerraformExitCode -Operation 'terraform plan -destroy'
     }
-    finally
-    {
+    finally {
         Set-Location $orig
     }
 }
 
-function Invoke-TerraformApply
-{
+function Invoke-LdoTerraformApply {
+    <#
+    .SYNOPSIS
+        Applies a saved Terraform plan file.
+
+    .DESCRIPTION
+        Runs terraform apply against a saved plan file, auto-approving unless -SkipApprove is
+        set, and throws on failure. The original working directory is always restored.
+
+    .PARAMETER CodePath
+        Path to the Terraform configuration folder.
+
+    .PARAMETER PlanFile
+        Plan file to apply. Defaults to tfplan.plan.
+
+    .PARAMETER SkipApprove
+        When set, does not pass -auto-approve.
+
+    .PARAMETER ApplyArgs
+        Additional arguments passed through to terraform apply.
+
+    .EXAMPLE
+        Invoke-LdoTerraformApply -CodePath ./terraform -PlanFile tfplan.plan
+
+    .OUTPUTS
+        None
+    #>
     [CmdletBinding()]
+    [OutputType([void])]
     param(
-        [Parameter(Mandatory)][string] $CodePath,
-        $PlanFile = "tfplan.plan",
-        [switch] $SkipApprove,
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$CodePath,
+        [string]$PlanFile = 'tfplan.plan',
+        [switch]$SkipApprove,
         [string[]]$ApplyArgs = @()
     )
 
-    $inv = $MyInvocation.MyCommand.Name
     $orig = Get-Location
-    try
-    {
-        if (-not (Test-Path $CodePath))
-        {
+    try {
+        if (-not (Test-Path $CodePath)) {
             throw "Terraform code not found: $CodePath"
         }
 
-        _LogMessage -Level 'INFO' -Message "terraform apply ‹$PlanFile›" -InvocationName $inv
+        Write-LdoLog -Level INFO -Message "terraform apply $PlanFile"
         Set-Location $CodePath
 
         $cmd = @('apply')
-        if (-not $SkipApprove)
-        {
+        if (-not $SkipApprove) {
             $cmd += '-auto-approve'
         }
         $cmd += @($PlanFile) + $ApplyArgs
 
         & terraform @cmd
-        if ($LASTEXITCODE)
-        {
-            throw "terraform apply failed ($LASTEXITCODE)"
-        }
+        Assert-LdoTerraformExitCode -Operation 'terraform apply'
     }
-    finally
-    {
+    finally {
         Set-Location $orig
     }
 }
 
-function Invoke-TerraformDestroy
-{
+function Invoke-LdoTerraformDestroy {
+    <#
+    .SYNOPSIS
+        Applies a saved Terraform destroy plan file.
+
+    .DESCRIPTION
+        Runs terraform apply against a saved destroy plan file, auto-approving unless
+        -SkipApprove is set, and throws on failure. The original working directory is always
+        restored.
+
+    .PARAMETER CodePath
+        Path to the Terraform configuration folder.
+
+    .PARAMETER PlanFile
+        Destroy plan file to apply. Defaults to tfplan-destroy.plan.
+
+    .PARAMETER SkipApprove
+        When set, does not pass -auto-approve.
+
+    .PARAMETER DestroyArgs
+        Additional arguments passed through to terraform apply.
+
+    .EXAMPLE
+        Invoke-LdoTerraformDestroy -CodePath ./terraform -PlanFile tfplan.plan.destroy
+
+    .OUTPUTS
+        None
+    #>
     [CmdletBinding()]
+    [OutputType([void])]
     param(
-        [Parameter(Mandatory)][string] $CodePath,
-        $PlanFile = "tfplan-destroy.plan",
-        [switch] $SkipApprove,
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$CodePath,
+        [string]$PlanFile = 'tfplan-destroy.plan',
+        [switch]$SkipApprove,
         [string[]]$DestroyArgs = @()
     )
 
-    $inv = $MyInvocation.MyCommand.Name
     $orig = Get-Location
-    try
-    {
-        if (-not (Test-Path $CodePath))
-        {
+    try {
+        if (-not (Test-Path $CodePath)) {
             throw "Terraform code not found: $CodePath"
         }
 
-        _LogMessage -Level 'INFO' -Message "terraform apply (destroy) ‹$PlanFile›" -InvocationName $inv
+        Write-LdoLog -Level INFO -Message "terraform apply (destroy) $PlanFile"
         Set-Location $CodePath
 
         $cmd = @('apply')
-        if (-not $SkipApprove)
-        {
+        if (-not $SkipApprove) {
             $cmd += '-auto-approve'
         }
-        $cmd += @($PlanFile) + $ApplyArgs
+        $cmd += @($PlanFile) + $DestroyArgs
 
         & terraform @cmd
-        if ($LASTEXITCODE)
-        {
-            throw "terraform apply (destroy) failed ($LASTEXITCODE)"
-        }
+        Assert-LdoTerraformExitCode -Operation 'terraform apply (destroy)'
     }
-    finally
-    {
+    finally {
         Set-Location $orig
     }
 }
 
-function Convert-TerraformPlanToJson
-{
+function Convert-LdoTerraformPlanToJson {
+    <#
+    .SYNOPSIS
+        Converts a binary Terraform plan file to JSON.
+
+    .DESCRIPTION
+        Runs 'terraform show -json' against a saved plan file and writes the output to a JSON
+        file alongside it. Throws on failure. The original working directory is always restored.
+
+    .PARAMETER CodePath
+        Path to the Terraform configuration folder.
+
+    .PARAMETER PlanFile
+        Binary plan file to convert. Defaults to tfplan.plan.
+
+    .PARAMETER JsonFile
+        Output JSON file name. Defaults to <PlanFile>.json.
+
+    .PARAMETER PassThru
+        When set, returns the path to the JSON file.
+
+    .EXAMPLE
+        Convert-LdoTerraformPlanToJson -CodePath ./terraform -PassThru
+
+    .OUTPUTS
+        System.String. The JSON file path, when -PassThru is set.
+    #>
     [CmdletBinding()]
+    [OutputType([string])]
     param(
-        [Parameter(Mandatory)][string] $CodePath,
-
-    # Binary plan created by Invoke-TerraformPlan
-        [string] $PlanFile = 'tfplan.plan',
-
-    # Override JSON file name (default = <PlanFile>.json)
-        [string] $JsonFile = $null,
-
-    # Only emit the JSON path when caller asks for it
-        [switch] $PassThru
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$CodePath,
+        [string]$PlanFile = 'tfplan.plan',
+        [string]$JsonFile,
+        [switch]$PassThru
     )
 
-    $inv = $MyInvocation.MyCommand.Name
-    $orig = Get-Location
-
-    if (-not $JsonFile)
-    {
-        $JsonFile = "${PlanFile}.json"
+    if (-not $JsonFile) {
+        $JsonFile = "$PlanFile.json"
     }
 
-    try
-    {
-        # ── checks ───────────────────────────────────────────────────────────
-        if (-not (Test-Path $CodePath))
-        {
-            _LogMessage -Level 'ERROR' -Message "Terraform code not found: $CodePath" -InvocationName $inv
+    $orig = Get-Location
+    try {
+        if (-not (Test-Path $CodePath)) {
             throw "Terraform code not found: $CodePath"
         }
         $planPath = Join-Path $CodePath $PlanFile
-        if (-not (Test-Path $planPath))
-        {
-            _LogMessage -Level 'ERROR' -Message "Plan file not found: $planPath" -InvocationName $inv
+        if (-not (Test-Path $planPath)) {
             throw "Plan file not found: $planPath"
         }
 
-        # ── convert ─────────────────────────────────────────────────────────
-        _LogMessage -Level 'INFO' -Message "Converting $PlanFile → $JsonFile" -InvocationName $inv
+        Write-LdoLog -Level INFO -Message "Converting $PlanFile to $JsonFile"
         Set-Location $CodePath
 
         $jsonPath = Join-Path $CodePath $JsonFile
         terraform show -json $PlanFile | Out-File -FilePath $jsonPath -Encoding utf8
-        $code = $LASTEXITCODE
-        _LogMessage -Level 'DEBUG' -Message "terraform show exit-code: $code" -InvocationName $inv
-        if ($code -ne 0)
-        {
-            throw "terraform show failed (exit $code)."
-        }
+        Assert-LdoTerraformExitCode -Operation 'terraform show -json'
 
-        if (-not (Test-Path $jsonPath))
-        {
+        if (-not (Test-Path $jsonPath)) {
             throw 'JSON output not created.'
         }
 
-        _LogMessage -Level 'INFO' -Message "JSON plan written to $jsonPath" -InvocationName $inv
+        Write-LdoLog -Level SUCCESS -Message "JSON plan written to $jsonPath"
 
-        if ($PassThru)
-        {
+        if ($PassThru) {
             return $jsonPath
-        }   # ← only emit when requested
+        }
     }
-    catch
-    {
-        _LogMessage -Level 'ERROR' -Message $_.Exception.Message -InvocationName $inv
-        throw
-    }
-    finally
-    {
+    finally {
         Set-Location $orig
     }
 }
 
-
-###############################################################################
-# Update the module export list
-###############################################################################
 Export-ModuleMember -Function `
-    Invoke-TerraformValidate, `
-             Invoke-TerraformFmtCheck, `
-             Get-TerraformStackFolders, `
-             Invoke-TerraformInit, `
-             Invoke-TerraformWorkspaceSelect, `
-             Invoke-TerraformPlan, `
-             Invoke-TerraformPlanDestroy, `
-             Invoke-TerraformApply, `
-             Invoke-TerraformDestroy, `
-             Convert-TerraformPlanToJson
-
+    Invoke-LdoTerraformValidate, `
+    Invoke-LdoTerraformFmtCheck, `
+    Get-LdoTerraformStackFolders, `
+    Invoke-LdoTerraformInit, `
+    Invoke-LdoTerraformWorkspaceSelect, `
+    Invoke-LdoTerraformPlan, `
+    Invoke-LdoTerraformPlanDestroy, `
+    Invoke-LdoTerraformApply, `
+    Invoke-LdoTerraformDestroy, `
+    Convert-LdoTerraformPlanToJson

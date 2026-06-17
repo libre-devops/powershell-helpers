@@ -1,116 +1,159 @@
-function Invoke-InstallTenv {
+Set-StrictMode -Version Latest
+
+function Install-LdoTenv {
+    <#
+    .SYNOPSIS
+        Installs the tenv version manager if it is not already present.
+
+    .DESCRIPTION
+        Installs tenv via Chocolatey on Windows or Homebrew on other platforms when the tenv
+        command is not found on PATH.
+
+    .EXAMPLE
+        Install-LdoTenv
+
+    .OUTPUTS
+        None
+    #>
     [CmdletBinding()]
+    [OutputType([void])]
     param()
 
-    $inv = $MyInvocation.MyCommand.Name
-    $os = Get-LdoOperatingSystem
+    if (Get-Command tenv -ErrorAction SilentlyContinue) {
+        Write-LdoLog -Level INFO -Message 'tenv already installed.'
+        return
+    }
 
-    if (-not (Get-Command tenv -ErrorAction SilentlyContinue)) {
-        if ($os -eq 'windows') {
-            Assert-ChocoPath
-            _LogMessage -Level INFO -Message "Installing tenv via Chocolatey…" -InvocationName $inv
-            choco install tenv -y
-        }
-        else {
-            Assert-HomebrewPath
-            _LogMessage -Level INFO -Message "Installing tenv via Homebrew…" -InvocationName $inv
-            brew install tenv
-        }
+    $os = Get-LdoOperatingSystem
+    if ($os -eq 'windows') {
+        Assert-LdoChocoPath
+        Write-LdoLog -Level INFO -Message 'Installing tenv via Chocolatey.'
+        choco install tenv -y
     }
     else {
-        _LogMessage -Level INFO -Message "tenv already installed." -InvocationName $inv
+        Assert-LdoHomebrewPath
+        Write-LdoLog -Level INFO -Message 'Installing tenv via Homebrew.'
+        brew install tenv
     }
 }
 
+function Test-LdoTenv {
+    <#
+    .SYNOPSIS
+        Tests whether tenv is available on PATH.
 
-function Test-TenvExists
-{
-    try
-    {
-        $tenvPath = Get-Command tenv -ErrorAction Stop
-        _LogMessage -Level "INFO" -Message "Tenv found at: $( $tenvPath.Source )" -InvocationName "$( $MyInvocation.MyCommand.Name )"
-    }
-    catch
-    {
-        _LogMessage -Level "WARNING" -Message "tenv is not installed or not in PATH – skipping version management." -InvocationName "$( $MyInvocation.MyCommand.Name )"
-    }
-}
+    .DESCRIPTION
+        Returns $true when the tenv command is found, otherwise $false.
 
-function Invoke-TenvTfInstall {
+    .EXAMPLE
+        if (Test-LdoTenv) { Invoke-LdoTenvTerraformInstall }
+
+    .OUTPUTS
+        System.Boolean
+    #>
     [CmdletBinding()]
+    [OutputType([bool])]
+    param()
+
+    $tenvPath = Get-Command tenv -ErrorAction SilentlyContinue
+    if ($tenvPath) {
+        Write-LdoLog -Level INFO -Message "tenv found at: $($tenvPath.Source)"
+        return $true
+    }
+
+    Write-LdoLog -Level WARN -Message 'tenv is not installed or not in PATH.'
+    return $false
+}
+
+function Invoke-LdoTenvTerraformInstall {
+    <#
+    .SYNOPSIS
+        Installs and selects a Terraform version via tenv.
+
+    .DESCRIPTION
+        Uses tenv to install and select Terraform. 'latest' installs the newest release,
+        'latest-1' installs the latest patch of the previous minor release, and any other value
+        is treated as a version constraint matched against tenv's remote list.
+
+    .PARAMETER TerraformVersion
+        'latest', 'latest-1', or a version constraint such as '1.7'. Defaults to 'latest'.
+
+    .PARAMETER TenvArgs
+        Additional arguments passed through to tenv.
+
+    .EXAMPLE
+        Invoke-LdoTenvTerraformInstall -TerraformVersion 1.7
+
+    .OUTPUTS
+        None
+    #>
+    [CmdletBinding()]
+    [OutputType([void])]
     param(
         [string]$TerraformVersion = 'latest',
         [string[]]$TenvArgs = @()
     )
 
-    $inv = $MyInvocation.MyCommand.Name
     $orig = Get-Location
-
     try {
         $tenvPath = Get-Command tenv -ErrorAction Stop
-        _LogMessage -Level INFO -Message "Tenv found at: $($tenvPath.Source)" -InvocationName $inv
+        Write-LdoLog -Level INFO -Message "tenv found at: $($tenvPath.Source)"
 
-        # If it's neither 'latest' nor 'latest-1', treat as a constraint
-        if ($TerraformVersion -notin @('latest','latest-1')) {
-            _LogMessage -Level INFO -Message "Desired Terraform version is $TerraformVersion – installing / switching via tenv..." -InvocationName $inv
+        if ($TerraformVersion -notin @('latest', 'latest-1')) {
+            Write-LdoLog -Level INFO -Message "Desired Terraform version is $TerraformVersion; installing/switching via tenv."
 
             $escapedConstraint = [regex]::Escape($TerraformVersion)
-            $version = tenv tf list-remote `
-                | Select-String "^${escapedConstraint}\." `
-                | Select-Object -Last 1 `
-                | ForEach-Object { $_.ToString().Trim() }
+            $version = tenv tf list-remote |
+                Select-String "^${escapedConstraint}\." |
+                Select-Object -Last 1 |
+                ForEach-Object { $_.ToString().Trim() }
 
-            $cleanVersion = $version -replace '\s*\(installed\)\s*',''
+            $cleanVersion = $version -replace '\s*\(installed\)\s*', ''
             if ([string]::IsNullOrWhiteSpace($cleanVersion)) {
-                _LogMessage -Level ERROR -Message "No matching version found for constraint '$TerraformVersion'." -InvocationName $inv
-                throw "No matching Terraform version for '$TerraformVersion'"
+                throw "No matching Terraform version for '$TerraformVersion'."
             }
 
-            _LogMessage -Level INFO -Message "Installing Terraform version $cleanVersion." -InvocationName $inv
+            Write-LdoLog -Level INFO -Message "Installing Terraform version $cleanVersion."
             tenv tf install $cleanVersion
-            tenv tf use     $cleanVersion
+            tenv tf use $cleanVersion
         }
         elseif ($TerraformVersion -eq 'latest') {
-            _LogMessage -Level INFO -Message "Installing latest Terraform via tenv…" -InvocationName $inv
+            Write-LdoLog -Level INFO -Message 'Installing latest Terraform via tenv.'
             tenv tf install latest $TenvArgs
-            tenv tf use     latest $TenvArgs
+            tenv tf use latest $TenvArgs
         }
-        else {  # must be 'latest-1'
-            _LogMessage -Level INFO -Message "Installing previous minor Terraform release via tenv…" -InvocationName $inv
+        else {
+            Write-LdoLog -Level INFO -Message 'Installing previous minor Terraform release via tenv.'
 
-            # get the latest stable release
             $all = tenv tf list-remote | Select-String '^\d+\.\d+\.\d+$' | ForEach-Object { $_.ToString().Trim() }
+            if (-not $all) {
+                throw 'tenv returned no remote Terraform versions.'
+            }
             $latest = $all[-1]
             if ($latest -notmatch '^(\d+)\.(\d+)\.(\d+)$') {
                 throw "Unexpected version format: $latest"
             }
-            $major, $minor, $patch = $matches[1], $matches[2], $matches[3]
+            $major, $minor = $matches[1], [int]$matches[2]
 
             $previous = $all |
-                    Where-Object { $_ -match "^\Q$major\E\.\Q$($minor-1)\E\.\d+$" } |
-                    Select-Object -Last 1
+                Where-Object { $_ -match "^\Q$major\E\.\Q$($minor - 1)\E\.\d+$" } |
+                Select-Object -Last 1
 
             if (-not $previous) {
-                _LogMessage -Level ERROR -Message "No previous minor release found." -InvocationName $inv
-                throw "Cannot install previous minor Terraform version"
+                throw 'Cannot install previous minor Terraform version; no previous minor release found.'
             }
 
-            _LogMessage -Level INFO -Message "Installing Terraform version $previous." -InvocationName $inv
+            Write-LdoLog -Level INFO -Message "Installing Terraform version $previous."
             tenv tf install $previous $TenvArgs
-            tenv tf use     $previous $TenvArgs
+            tenv tf use $previous $TenvArgs
         }
-    }
-    catch {
-        _LogMessage -Level ERROR -Message "Error in Invoke-TenvTfInstall: $($_.Exception.Message)" -InvocationName $inv
-        throw
     }
     finally {
         Set-Location $orig
     }
 }
 
-
 Export-ModuleMember -Function `
-    Test-TenvExists, `
-     Invoke-TenvTfInstall, `
-     Invoke-InstallTenv
+    Install-LdoTenv, `
+    Test-LdoTenv, `
+    Invoke-LdoTenvTerraformInstall

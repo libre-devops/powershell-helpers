@@ -1,228 +1,300 @@
-<#  ───────────────────────── TerraformDocs.psm1 ─────────────────────────── #>
+Set-StrictMode -Version Latest
 
-function Format-Terraform
-{
+function Format-LdoTerraform {
+    <#
+    .SYNOPSIS
+        Runs 'terraform fmt -recursive' against a configuration folder.
+
+    .DESCRIPTION
+        Confirms terraform is on PATH, then formats all Terraform files beneath the folder.
+        Throws on failure. The original working directory is always restored.
+
+    .PARAMETER CodePath
+        Path to the Terraform configuration folder.
+
+    .EXAMPLE
+        Format-LdoTerraform -CodePath ./terraform
+
+    .OUTPUTS
+        None
+    #>
     [CmdletBinding()]
+    [OutputType([void])]
     param(
-        [Parameter(Mandatory)][string]$CodePath
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$CodePath
     )
 
-    $inv = $MyInvocation.MyCommand.Name
     $orig = Get-Location
-    try
-    {
+    try {
         $tf = Get-Command terraform -ErrorAction Stop
-        _LogMessage -Level INFO  -Message "terraform found at '$( $tf.Source )'" -InvocationName $inv
+        Write-LdoLog -Level INFO -Message "terraform found at '$($tf.Source)'"
         Set-Location $CodePath
         & terraform fmt -recursive
-        if ($LASTEXITCODE)
-        {
-            throw "terraform fmt returned exit code $LASTEXITCODE"
+        if ($LASTEXITCODE -ne 0) {
+            throw "terraform fmt returned exit code $LASTEXITCODE."
         }
-        _LogMessage -Level INFO  -Message 'Terraform files formatted (fmt -recursive).' -InvocationName $inv
+        Write-LdoLog -Level INFO -Message 'Terraform files formatted (fmt -recursive).'
     }
-    catch
-    {
-        _LogMessage -Level ERROR -Message $_.Exception.Message -InvocationName $inv
-        throw
-    }
-    finally
-    {
+    finally {
         Set-Location $orig
     }
 }
 
-#############################################################################
-# Helper – format all *.tf files under the current dir (terraform fmt -recursive)
-#############################################################################
-function Format-TerraformCode
-{
+function Get-LdoTerraformFileContent {
+    <#
+    .SYNOPSIS
+        Reads a Terraform file and returns its raw content.
+
+    .DESCRIPTION
+        Returns the full text of a file, throwing when the file does not exist.
+
+    .PARAMETER Filename
+        Path to the file to read.
+
+    .EXAMPLE
+        Get-LdoTerraformFileContent -Filename ./variables.tf
+
+    .OUTPUTS
+        System.String
+    #>
     [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$Filename)
+
+    if (-not (Test-Path $Filename)) {
+        throw "File not found: $Filename"
+    }
+    return Get-Content -Raw -LiteralPath $Filename
+}
+
+function Set-LdoTerraformFileContent {
+    <#
+    .SYNOPSIS
+        Writes content to a Terraform file.
+
+    .DESCRIPTION
+        Overwrites the named file with the supplied content.
+
+    .PARAMETER Filename
+        Path to the file to write.
+
+    .PARAMETER Content
+        Text content to write.
+
+    .EXAMPLE
+        Set-LdoTerraformFileContent -Filename ./variables.tf -Content $text
+
+    .OUTPUTS
+        None
+    #>
+    [CmdletBinding()]
+    [OutputType([void])]
     param(
-        [Parameter(Mandatory)][string]$CodePath,
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$Filename,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Content
+    )
+
+    $Content | Set-Content -LiteralPath $Filename
+}
+
+function Format-LdoTerraformVariables {
+    <#
+    .SYNOPSIS
+        Sorts variable blocks in variables.tf content alphabetically.
+
+    .DESCRIPTION
+        Parses variable "name" { ... } blocks from the supplied content and returns them sorted
+        by variable name, separated by blank lines.
+
+    .PARAMETER VariablesContent
+        Raw content of a variables.tf file.
+
+    .EXAMPLE
+        Format-LdoTerraformVariables -VariablesContent (Get-Content ./variables.tf -Raw)
+
+    .OUTPUTS
+        System.String
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessage('PSUseSingularNouns', '', Justification = 'Operates on Terraform variable blocks.')]
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$VariablesContent)
+
+    $pattern = 'variable\s+"[^"]+"\s+\{[\s\S]*?\n\}'
+    $blocks = [regex]::Matches($VariablesContent, $pattern) | ForEach-Object { $_.Value }
+    $sorted = $blocks | Sort-Object { ([regex]::Match($_, 'variable\s+"([^"]+)"')).Groups[1].Value }
+    return ($sorted -join "`n`n")
+}
+
+function Format-LdoTerraformOutputs {
+    <#
+    .SYNOPSIS
+        Sorts output blocks in outputs.tf content alphabetically.
+
+    .DESCRIPTION
+        Parses output "name" { ... } blocks from the supplied content and returns them sorted by
+        output name, separated by blank lines.
+
+    .PARAMETER OutputsContent
+        Raw content of an outputs.tf file.
+
+    .EXAMPLE
+        Format-LdoTerraformOutputs -OutputsContent (Get-Content ./outputs.tf -Raw)
+
+    .OUTPUTS
+        System.String
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessage('PSUseSingularNouns', '', Justification = 'Operates on Terraform output blocks.')]
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$OutputsContent)
+
+    $pattern = 'output\s+"[^"]+"\s+\{[\s\S]*?\n\}'
+    $blocks = [regex]::Matches($OutputsContent, $pattern) | ForEach-Object { $_.Value }
+    $sorted = $blocks | Sort-Object { ([regex]::Match($_, 'output\s+"([^"]+)"')).Groups[1].Value }
+    return ($sorted -join "`n`n")
+}
+
+function Format-LdoTerraformCode {
+    <#
+    .SYNOPSIS
+        Formats Terraform code and alphabetises variables.tf and outputs.tf.
+
+    .DESCRIPTION
+        Runs terraform fmt -recursive, then sorts the variable and output blocks in the named
+        files (when present and non-empty) so the declarations are kept in a consistent order.
+
+    .PARAMETER CodePath
+        Path to the Terraform configuration folder.
+
+    .PARAMETER VariablesFile
+        Variables file name within the folder. Defaults to variables.tf.
+
+    .PARAMETER OutputsFile
+        Outputs file name within the folder. Defaults to outputs.tf.
+
+    .EXAMPLE
+        Format-LdoTerraformCode -CodePath ./terraform
+
+    .OUTPUTS
+        None
+    #>
+    [CmdletBinding()]
+    [OutputType([void])]
+    param(
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$CodePath,
         [string]$VariablesFile = 'variables.tf',
         [string]$OutputsFile = 'outputs.tf'
     )
 
-    $inv = $MyInvocation.MyCommand.Name
+    Format-LdoTerraform -CodePath $CodePath
 
-    # ── step 1: terraform fmt ───────────────────────────────────────────
-    Format-Terraform -CodePath $CodePath
-
-    # ── step 2: sort variables.tf ───────────────────────────────────────
     $varPath = Join-Path $CodePath $VariablesFile
-    if (Test-Path $varPath)
-    {
-        $varsContent = Read-TerraformFile -Filename $varPath
-        if (-not [string]::IsNullOrWhiteSpace($varsContent))
-        {
-            $sortedVars = Format-TerraformVariables -VariablesContent $varsContent
-            if (-not [string]::IsNullOrWhiteSpace($sortedVars))
-            {
-                Write-TerraformFile -Filename $varPath -Content $sortedVars
-                _LogMessage -Level INFO -Message "Sorted variables in $varPath" -InvocationName $inv
+    if (Test-Path $varPath) {
+        $varsContent = Get-LdoTerraformFileContent -Filename $varPath
+        if (-not [string]::IsNullOrWhiteSpace($varsContent)) {
+            $sortedVars = Format-LdoTerraformVariables -VariablesContent $varsContent
+            if (-not [string]::IsNullOrWhiteSpace($sortedVars)) {
+                Set-LdoTerraformFileContent -Filename $varPath -Content $sortedVars
+                Write-LdoLog -Level INFO -Message "Sorted variables in $varPath"
             }
-            else
-            {
-                _LogMessage -Level INFO -Message "No variable blocks found to sort in $varPath, skipping write." -InvocationName $inv
+            else {
+                Write-LdoLog -Level INFO -Message "No variable blocks found to sort in $varPath; skipping write."
             }
         }
-        else
-        {
-            _LogMessage -Level INFO -Message "File $varPath is empty, skipping variable sort." -InvocationName $inv
+        else {
+            Write-LdoLog -Level INFO -Message "File $varPath is empty; skipping variable sort."
         }
     }
 
-    # ── step 3: sort outputs.tf ─────────────────────────────────────────
     $outPath = Join-Path $CodePath $OutputsFile
-    if (Test-Path $outPath)
-    {
-        $outContent = Read-TerraformFile -Filename $outPath
-        if (-not [string]::IsNullOrWhiteSpace($outContent))
-        {
-            $sortedOut = Format-TerraformOutputs -OutputsContent $outContent
-            if (-not [string]::IsNullOrWhiteSpace($sortedOut))
-            {
-                Write-TerraformFile -Filename $outPath -Content $sortedOut
-                _LogMessage -Level INFO -Message "Sorted outputs in $outPath" -InvocationName $inv
+    if (Test-Path $outPath) {
+        $outContent = Get-LdoTerraformFileContent -Filename $outPath
+        if (-not [string]::IsNullOrWhiteSpace($outContent)) {
+            $sortedOut = Format-LdoTerraformOutputs -OutputsContent $outContent
+            if (-not [string]::IsNullOrWhiteSpace($sortedOut)) {
+                Set-LdoTerraformFileContent -Filename $outPath -Content $sortedOut
+                Write-LdoLog -Level INFO -Message "Sorted outputs in $outPath"
             }
-            else
-            {
-                _LogMessage -Level INFO -Message "No output blocks found to sort in $outPath, skipping write." -InvocationName $inv
+            else {
+                Write-LdoLog -Level INFO -Message "No output blocks found to sort in $outPath; skipping write."
             }
         }
-        else
-        {
-            _LogMessage -Level INFO -Message "File $outPath is empty, skipping output sort." -InvocationName $inv
+        else {
+            Write-LdoLog -Level INFO -Message "File $outPath is empty; skipping output sort."
         }
     }
 }
 
+function Update-LdoReadmeWithTerraformDocs {
+    <#
+    .SYNOPSIS
+        Regenerates README.md for a Terraform folder using terraform-docs.
 
+    .DESCRIPTION
+        Writes the chosen build file (build.tf or main.tf) into a fenced HCL block at the top of
+        the README, then appends the terraform-docs markdown table. Skips silently when
+        terraform-docs is not installed or no build file is present. The original working
+        directory is always restored.
 
+    .PARAMETER CodePath
+        Path to the Terraform configuration folder.
 
-#############################################################################
-# Safe file-read
-#############################################################################
-function Read-TerraformFile
-{
+    .PARAMETER ReadmeFile
+        README file name within the folder. Defaults to README.md.
+
+    .EXAMPLE
+        Update-LdoReadmeWithTerraformDocs -CodePath ./terraform
+
+    .OUTPUTS
+        None
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessage('PSUseSingularNouns', '', Justification = 'terraform-docs is a tool name.')]
     [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$Filename)
-
-    if (-not (Test-Path $Filename))
-    {
-        _LogMessage -Level ERROR -Message "File not found: $Filename" -InvocationName $MyInvocation.MyCommand.Name
-        throw "File not found: $Filename"
-    }
-    try
-    {
-        return Get-Content -Raw -LiteralPath $Filename
-    }
-    catch
-    {
-        _LogMessage -Level ERROR -Message $_.Exception.Message -InvocationName $MyInvocation.MyCommand.Name; throw
-    }
-}
-
-#############################################################################
-# Safe file-write
-#############################################################################
-function Write-TerraformFile
-{
-    [CmdletBinding()]
+    [OutputType([void])]
     param(
-        [Parameter(Mandatory)][string]$Filename,
-        [Parameter(Mandatory)][string]$Content
-    )
-    try
-    {
-        $Content | Set-Content -LiteralPath $Filename
-    }
-    catch
-    {
-        _LogMessage -Level ERROR -Message $_.Exception.Message -InvocationName $MyInvocation.MyCommand.Name; throw
-    }
-}
-
-#############################################################################
-# Sort variables.tf blocks alphabetically by variable name
-#############################################################################
-function Format-TerraformVariables
-{
-    [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$VariablesContent)
-
-    $pattern = 'variable\s+"[^"]+"\s+\{[\s\S]*?\n\}'
-    $blocks = [regex]::Matches($VariablesContent, $pattern) | ForEach-Object { $_.Value }
-    $sorted = $blocks |
-            Sort-Object { ([regex]::Match($_, 'variable\s+"([^"]+)"')).Groups[1].Value }
-    return ($sorted -join "`n`n")
-}
-
-#############################################################################
-# Sort outputs.tf blocks alphabetically by output name
-#############################################################################
-function Format-TerraformOutputs
-{
-    [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$OutputsContent)
-
-    $pattern = 'output\s+"[^"]+"\s+\{[\s\S]*?\n\}'
-    $blocks = [regex]::Matches($OutputsContent, $pattern) | ForEach-Object { $_.Value }
-    $sorted = $blocks |
-            Sort-Object { ([regex]::Match($_, 'output\s+"([^"]+)"')).Groups[1].Value }
-    return ($sorted -join "`n`n")
-}
-
-#############################################################################
-# Generate / refresh README.md using terraform-docs
-#############################################################################
-function Update-ReadmeWithTerraformDocs
-{
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)][string]$CodePath,
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$CodePath,
         [string]$ReadmeFile = 'README.md'
     )
 
-    $inv = $MyInvocation.MyCommand.Name
     $orig = Get-Location
-    try
-    {
-        $td = Get-Command terraform-docs -ErrorAction Stop
-        _LogMessage -Level INFO -Message "terraform-docs found at '$( $td.Source )'" -InvocationName $inv
+    try {
+        try {
+            $td = Get-Command terraform-docs -ErrorAction Stop
+            Write-LdoLog -Level INFO -Message "terraform-docs found at '$($td.Source)'"
+        }
+        catch {
+            Write-LdoLog -Level WARN -Message 'terraform-docs not installed; README generation skipped.'
+            return
+        }
+
+        Set-Location $CodePath
+
+        $build = @('build.tf', 'main.tf') | Where-Object { Test-Path $_ } | Select-Object -First 1
+        if (-not $build) {
+            Write-LdoLog -Level WARN -Message 'No build.tf or main.tf found; README not updated.'
+            return
+        }
+
+        Write-LdoLog -Level INFO -Message "Generating $ReadmeFile from $build and terraform-docs."
+
+        '```hcl' | Set-Content $ReadmeFile
+        Get-Content $build | Add-Content $ReadmeFile
+        '```' | Add-Content $ReadmeFile
+        terraform-docs markdown . | Add-Content $ReadmeFile
+
+        Write-LdoLog -Level SUCCESS -Message "Updated $ReadmeFile."
     }
-    catch
-    {
-        _LogMessage -Level WARN -Message 'terraform-docs not installed – README generation skipped.' -InvocationName $inv
-        return
+    finally {
+        Set-Location $orig
     }
-
-    Set-Location $CodePath
-
-    # choose build file
-    $build = @('build.tf', 'main.tf') | Where-Object { Test-Path $_ } | Select-Object -First 1
-    if (-not $build)
-    {
-        _LogMessage -Level WARN -Message 'No build.tf or main.tf found – README not updated.' -InvocationName $inv
-        return
-    }
-
-    _LogMessage -Level INFO -Message "Generating README.md from $build and terraform-docs…" -InvocationName $inv
-
-    '```hcl'                | Set-Content  $ReadmeFile
-    Get-Content $build      | Add-Content  $ReadmeFile
-    '```'                   | Add-Content  $ReadmeFile
-    terraform-docs markdown . | Add-Content $ReadmeFile
 }
-#############################################################################
-# Export
-#############################################################################
+
 Export-ModuleMember -Function `
-    Format-Terraform, `
-      Format-TerraformCode, `
-      Read-TerraformFile, `
-      Write-TerraformFile, `
-      Format-TerraformVariables, `
-      Format-TerraformOutputs, `
-      Update-ReadmeWithTerraformDocs
+    Format-LdoTerraform, `
+    Format-LdoTerraformCode, `
+    Get-LdoTerraformFileContent, `
+    Set-LdoTerraformFileContent, `
+    Format-LdoTerraformVariables, `
+    Format-LdoTerraformOutputs, `
+    Update-LdoReadmeWithTerraformDocs
