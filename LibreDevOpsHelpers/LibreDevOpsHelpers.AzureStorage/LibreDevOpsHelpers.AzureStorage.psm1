@@ -1,107 +1,155 @@
-if (-not $script:__stStateCache)
-{
-    $script:__stStateCache = @{ }
+Set-StrictMode -Version Latest
+
+# Remembers each storage account's original network configuration so it can be
+# restored after a temporary access rule is removed. Keyed by account name.
+$script:LdoStorageStateCache = @{ }
+
+function Assert-LdoStorageExitCode {
+    # Internal. Throws when the last native command exited non-zero.
+    [CmdletBinding()]
+    [OutputType([void])]
+    param([Parameter(Mandatory)][string]$Operation)
+
+    if ($LASTEXITCODE -ne 0) {
+        throw "$Operation failed with exit code $LASTEXITCODE."
+    }
 }
 
-function Set-CurrentIPInStorageAccess
-{
+function Get-LdoStoragePublicIpAddress {
+    # Internal. Returns the caller's public IPv4 address.
     [CmdletBinding()]
+    [OutputType([string])]
+    param()
+
+    $ip = (Invoke-RestMethod -Uri 'https://checkip.amazonaws.com' -ErrorAction Stop).Trim()
+    if ([string]::IsNullOrWhiteSpace($ip)) {
+        throw 'Failed to determine the public IP address.'
+    }
+    return $ip
+}
+
+function Add-LdoStorageCurrentIpRule {
+    <#
+    .SYNOPSIS
+        Temporarily grants the caller's public IP access to a storage account.
+
+    .DESCRIPTION
+        Caches the account's current network configuration on first use, enables public
+        network access with a default Deny action (preserving any existing bypass), and adds
+        a network rule for the caller's current public IP. Existing IP and VNet rules are
+        left untouched. Use Remove-LdoStorageCurrentIpRule to revert.
+
+        Requires the Azure CLI to be signed in.
+
+    .PARAMETER ResourceGroup
+        Resource group containing the storage account.
+
+    .PARAMETER StorageAccountName
+        Name of the storage account.
+
+    .EXAMPLE
+        Add-LdoStorageCurrentIpRule -ResourceGroup rg-prod -StorageAccountName saprod
+
+    .OUTPUTS
+        None
+    #>
+    [CmdletBinding()]
+    [OutputType([void])]
     param(
-        [Parameter(Mandatory)][string]$ResourceGroup,
-        [Parameter(Mandatory)][string]$StorageAccountName,
-        [Parameter(Mandatory)][bool]  $AddRule
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$ResourceGroup,
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$StorageAccountName
     )
 
-    $inv = $MyInvocation.MyCommand.Name
-    try
-    {
-        # ── caller IP ─────────────────────────────────────────────────────
-        $currentIp = (Invoke-RestMethod -Uri 'https://checkip.amazonaws.com').Trim()
-        if (-not $currentIp)
-        {
-            _LogMessage -Level ERROR -Message 'Failed to obtain public IP.' -InvocationName $inv
-            return
+    $ip = Get-LdoStoragePublicIpAddress
+    Write-LdoLog -Level INFO -Message "Current public IP: $ip"
+
+    if (-not $script:LdoStorageStateCache.ContainsKey($StorageAccountName)) {
+        $account = az storage account show -g $ResourceGroup -n $StorageAccountName -o json | ConvertFrom-Json
+        Assert-LdoStorageExitCode -Operation "az storage account show ($StorageAccountName)"
+        $script:LdoStorageStateCache[$StorageAccountName] = @{
+            PublicNetworkAccess = $account.publicNetworkAccess
+            DefaultAction = $account.networkRuleSet.defaultAction
+            Bypass = $account.networkRuleSet.bypass
         }
-        _LogMessage -Level INFO -Message "Current IP: $currentIp" -InvocationName $inv
-
-        # ── cache original state once per account ────────────────────────
-        if (-not $script:__stStateCache.ContainsKey($StorageAccountName))
-        {
-            $sa = az storage account show -g $ResourceGroup -n $StorageAccountName -o json |
-                    ConvertFrom-Json
-
-            $script:__stStateCache[$StorageAccountName] = @{
-                publicNetworkAccess = $sa.publicNetworkAccess             # Enabled / Disabled
-                defaultAction = $sa.networkRuleSet.defaultAction    # Allow / Deny
-                bypass = $sa.networkRuleSet.bypass           # comma-separated string
-                # we **never** overwrite ipRules / vnetRules, so no need to copy them
-            }
-            _LogMessage -Level DEBUG -Message "Captured original SA network-ACL state of $StorageAccountName." -InvocationName $inv
-        }
-
-        if ($AddRule)
-        {
-            $origBypass = $script:__stStateCache[$StorageAccountName].bypass
-
-            # Enable public access + keep existing bypass list
-            $update = @(
-                'storage', 'account', 'update',
-                '-g', $ResourceGroup, '-n', $StorageAccountName,
-                '--public-network-access', 'Enabled',
-                '--default-action', 'Deny'        # open wide; IP rule will still be added
-            )
-            if ($origBypass)
-            {
-                $update += @('--bypass', $origBypass)
-            }
-            az @update | Out-Null
-
-            # Add IP only if absent
-            $exists = az storage account network-rule list `
-                        -g $ResourceGroup -n $StorageAccountName `
-                        --query "[?ipAddress=='$currentIp']" -o tsv
-            if (-not $exists)
-            {
-                az storage account network-rule add `
-                    -g $ResourceGroup -n $StorageAccountName `
-                    --ip-address $currentIp | Out-Null
-                _LogMessage -Level INFO -Message "Temporary SA rule added for $currentIp to $StorageAccountName" -InvocationName $inv
-            }
-            else
-            {
-                _LogMessage -Level INFO -Message "SA rule for $currentIp already exists; skipping add." -InvocationName $inv
-            }
-        }
-        else
-        {
-            az storage account network-rule remove `
-                -g $ResourceGroup -n $StorageAccountName `
-                --ip-address $currentIp 2> $null | Out-Null
-            _LogMessage -Level INFO -Message "Removed temporary SA rule for $currentIp from $StorageAccountName" -InvocationName $inv
-
-            $orig = $script:__stStateCache[$StorageAccountName]
-
-            $restore = @(
-                'storage', 'account', 'update',
-                '-g', $ResourceGroup, '-n', $StorageAccountName,
-                '--public-network-access', 'Disabled', # final lock-down
-                '--default-action', 'Deny'
-            )
-            if ($orig.bypass)
-            {
-                $restore += @('--bypass', $orig.bypass)
-            }
-            az @restore | Out-Null
-            _LogMessage -Level INFO -Message "Storage account: $StorageAccountName - locked down; public access disabled." -InvocationName $inv
-        }
-
-        _LogMessage -Level INFO -Message 'Storage-account ACL update complete.' -InvocationName $inv
+        Write-LdoLog -Level DEBUG -Message "Captured original network state for $StorageAccountName."
     }
-    catch
-    {
-        _LogMessage -Level ERROR -Message "An error occurred: $_" -InvocationName $inv
-        throw
+
+    $cached = $script:LdoStorageStateCache[$StorageAccountName]
+    $update = @('storage', 'account', 'update', '-g', $ResourceGroup, '-n', $StorageAccountName,
+        '--public-network-access', 'Enabled', '--default-action', 'Deny')
+    if ($cached.Bypass) { $update += @('--bypass', $cached.Bypass) }
+    az @update | Out-Null
+    Assert-LdoStorageExitCode -Operation "az storage account update ($StorageAccountName)"
+
+    $existing = az storage account network-rule list -g $ResourceGroup -n $StorageAccountName --query "[?ipAddress=='$ip']" -o tsv
+    if (-not $existing) {
+        az storage account network-rule add -g $ResourceGroup -n $StorageAccountName --ip-address $ip | Out-Null
+        Assert-LdoStorageExitCode -Operation "az storage account network-rule add ($StorageAccountName)"
+        Write-LdoLog -Level INFO -Message "Added temporary storage rule for $ip on $StorageAccountName."
+    }
+    else {
+        Write-LdoLog -Level INFO -Message "Storage rule for $ip already present on $StorageAccountName; skipping add."
     }
 }
 
-Export-ModuleMember -Function Set-CurrentIPInStorageAccess
+function Remove-LdoStorageCurrentIpRule {
+    <#
+    .SYNOPSIS
+        Removes the caller's temporary storage account access rule and restores settings.
+
+    .DESCRIPTION
+        Removes the network rule for the caller's current public IP and restores the
+        account's network configuration captured by Add-LdoStorageCurrentIpRule. If no
+        cached state exists, the account is left with public network access disabled and a
+        default Deny.
+
+        Requires the Azure CLI to be signed in.
+
+    .PARAMETER ResourceGroup
+        Resource group containing the storage account.
+
+    .PARAMETER StorageAccountName
+        Name of the storage account.
+
+    .EXAMPLE
+        Remove-LdoStorageCurrentIpRule -ResourceGroup rg-prod -StorageAccountName saprod
+
+    .OUTPUTS
+        None
+    #>
+    [CmdletBinding()]
+    [OutputType([void])]
+    param(
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$ResourceGroup,
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$StorageAccountName
+    )
+
+    $ip = Get-LdoStoragePublicIpAddress
+
+    az storage account network-rule remove -g $ResourceGroup -n $StorageAccountName --ip-address $ip 2>$null | Out-Null
+    Write-LdoLog -Level INFO -Message "Removed temporary storage rule for $ip from $StorageAccountName."
+
+    if ($script:LdoStorageStateCache.ContainsKey($StorageAccountName)) {
+        $cached = $script:LdoStorageStateCache[$StorageAccountName]
+        $publicAccess = if ($cached.PublicNetworkAccess) { $cached.PublicNetworkAccess } else { 'Disabled' }
+        $defaultAction = if ($cached.DefaultAction) { $cached.DefaultAction } else { 'Deny' }
+    }
+    else {
+        $publicAccess = 'Disabled'
+        $defaultAction = 'Deny'
+        $cached = @{ Bypass = $null }
+    }
+
+    $restore = @('storage', 'account', 'update', '-g', $ResourceGroup, '-n', $StorageAccountName,
+        '--public-network-access', $publicAccess, '--default-action', $defaultAction)
+    if ($cached.Bypass) { $restore += @('--bypass', $cached.Bypass) }
+    az @restore | Out-Null
+    Assert-LdoStorageExitCode -Operation "az storage account update ($StorageAccountName)"
+
+    $script:LdoStorageStateCache.Remove($StorageAccountName) | Out-Null
+    Write-LdoLog -Level INFO -Message "Restored network ACLs on $StorageAccountName."
+}
+
+Export-ModuleMember -Function `
+    Add-LdoStorageCurrentIpRule, `
+    Remove-LdoStorageCurrentIpRule
