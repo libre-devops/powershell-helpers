@@ -69,6 +69,31 @@ For tracking and addressing public bugs, we utilize GitHub [issues](https://gith
 
 Comprehensive bug reports are invaluable to us. Truly, we can't emphasize this enough.
 
+## PowerShell module standards
+
+When contributing to the LibreDevOpsHelpers module, follow these conventions so the toolkit stays
+consistent and testable:
+
+1. Target PowerShell 7.2 or later. Start each module file with `Set-StrictMode -Version Latest`.
+2. Name every public function with the `Ldo` prefix and an approved PowerShell verb
+   (`Get-Verb` lists them).
+3. Give every function comment-based help (`.SYNOPSIS`, `.DESCRIPTION`, `.PARAMETER`, `.EXAMPLE`,
+   `.OUTPUTS`), a `[CmdletBinding()]` attribute, and an `[OutputType()]`.
+4. Validate parameters (`ValidateNotNullOrEmpty`, `ValidateSet`, `ValidateRange`, and similar).
+   Accept secrets as `[securestring]`.
+5. Log through `Write-LdoLog`. Never use `Write-Host` for logging and never call `exit` in a
+   function; `throw` instead so the caller controls flow.
+6. After invoking a native CLI, check the result with `Assert-LdoLastExitCode`.
+7. Reuse the shared helpers in `LibreDevOpsHelpers.Utils` (for example `Get-LdoPublicIpAddress`,
+   `Assert-LdoLastExitCode`) rather than duplicating them.
+8. Use plain ASCII only. No smart quotes, em or en dashes, ellipsis glyphs, or emoji.
+9. Add Pester tests under `tests/` for every new function. Tests must not touch the network, Azure,
+   or external CLIs; mock those boundaries.
+10. When you add or rename a public function, register the new nested module (if any) in
+    `LibreDevOpsHelpers.psd1` `NestedModules` and update the explicit `FunctionsToExport` list.
+11. Run `./Invoke-Tests.ps1` before opening a PR. It must be analyzer clean (no Error or Warning)
+    and all tests must pass.
+
 ## Licensing Terms
 
 By offering your contributions, you consent to license them under the MIT License.

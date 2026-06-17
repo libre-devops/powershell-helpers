@@ -12,7 +12,7 @@
     RootModule = '.\LibreDevOpsHelpers.psm1'
 
     # Version number of this module.
-    ModuleVersion = '1.2.0'
+    ModuleVersion = '2.0.0'
 
     # Supported PSEditions
     # CompatiblePSEditions = @()
@@ -30,7 +30,7 @@
     Copyright = '(c) Craig Thacker. All rights reserved.'
 
     # Description of the functionality provided by this module
-    Description = 'Helper functions for Libre DevOps projects'
+    Description = 'Enterprise grade PowerShell helpers for Azure, Terraform, Microsoft Graph, and DevOps tooling. All commands use the Ldo prefix.'
 
     # Minimum version of the PowerShell engine required by this module
     PowerShellVersion = '7.2'
@@ -94,7 +94,102 @@
 
 
     # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
-    FunctionsToExport = '*'
+    FunctionsToExport = @(
+        'Add-LdoFunctionAppCurrentIpRule',
+        'Add-LdoKeyVaultCurrentIpRule',
+        'Add-LdoNsgCurrentIpRule',
+        'Add-LdoStorageCurrentIpRule',
+        'Assert-LdoChocoPath',
+        'Assert-LdoCommand',
+        'Assert-LdoDockerExists',
+        'Assert-LdoEnvironmentVariable',
+        'Assert-LdoHomebrewPath',
+        'Assert-LdoLastExitCode',
+        'Build-LdoDockerImage',
+        'Clear-LdoGraphTokenCache',
+        'Clear-LdoVenv',
+        'Compress-LdoFunctionAppSource',
+        'Connect-LdoAzureCli',
+        'Connect-LdoAzureCliClientSecret',
+        'Connect-LdoAzureCliDeviceCode',
+        'Connect-LdoAzureCliManagedIdentity',
+        'Connect-LdoAzureCliOidc',
+        'Connect-LdoAzurePowerShell',
+        'Connect-LdoAzurePowerShellClientSecret',
+        'Connect-LdoAzurePowerShellDeviceCode',
+        'Connect-LdoAzurePowerShellManagedIdentity',
+        'Convert-LdoTerraformPlanToJson',
+        'ConvertTo-LdoBoolean',
+        'ConvertTo-LdoNull',
+        'Disconnect-LdoAzureCli',
+        'Disconnect-LdoAzurePowerShell',
+        'Format-LdoTerraform',
+        'Format-LdoTerraformCode',
+        'Format-LdoTerraformOutputs',
+        'Format-LdoTerraformVariables',
+        'Get-LdoAzureDevOpsOrgId',
+        'Get-LdoFunctionAppDefaultUrl',
+        'Get-LdoGitHubActionsInput',
+        'Get-LdoGraphErrorDetail',
+        'Get-LdoGraphToken',
+        'Get-LdoOperatingSystem',
+        'Get-LdoPublicIpAddress',
+        'Get-LdoTerraformFileContent',
+        'Get-LdoTerraformImportResourceId',
+        'Get-LdoTerraformStackFolders',
+        'Initialize-LdoVenv',
+        'Install-LdoAzureCli',
+        'Install-LdoCheckov',
+        'Install-LdoTenv',
+        'Install-LdoTrivy',
+        'Invoke-LdoAzureDevOpsTokenReplacement',
+        'Invoke-LdoAzureDevOpsTokenReplacementRevert',
+        'Invoke-LdoCheckov',
+        'Invoke-LdoFunctionAppZipDeploy',
+        'Invoke-LdoGraphRequest',
+        'Invoke-LdoPackerBuild',
+        'Invoke-LdoPackerInit',
+        'Invoke-LdoPackerValidate',
+        'Invoke-LdoPackerWorkflow',
+        'Invoke-LdoPesterTest',
+        'Invoke-LdoPytestRun',
+        'Invoke-LdoPythonInstallRequirements',
+        'Invoke-LdoTenvTerraformInstall',
+        'Invoke-LdoTerraformApply',
+        'Invoke-LdoTerraformDestroy',
+        'Invoke-LdoTerraformFmtCheck',
+        'Invoke-LdoTerraformImportFromPlan',
+        'Invoke-LdoTerraformInit',
+        'Invoke-LdoTerraformPlan',
+        'Invoke-LdoTerraformPlanDestroy',
+        'Invoke-LdoTerraformValidate',
+        'Invoke-LdoTerraformWorkspaceSelect',
+        'Invoke-LdoTrivy',
+        'Invoke-LdoWithRetry',
+        'New-LdoPassword',
+        'New-LdoRandomSequence',
+        'New-LdoVenv',
+        'Push-LdoDockerImage',
+        'Register-LdoPesterAssertion',
+        'Remove-LdoFunctionAppCurrentIpRule',
+        'Remove-LdoKeyVaultCurrentIpRule',
+        'Remove-LdoNsgRule',
+        'Remove-LdoPythonPackages',
+        'Remove-LdoStorageCurrentIpRule',
+        'Remove-LdoVenv',
+        'Set-LdoFunctionAppSetting',
+        'Set-LdoLogLevel',
+        'Set-LdoTerraformFileContent',
+        'Test-LdoAzureCliConnection',
+        'Test-LdoAzurePowerShellConnection',
+        'Test-LdoCommandOutputMatch',
+        'Test-LdoPath',
+        'Test-LdoTenv',
+        'Test-LdoZeroExitCode',
+        'Update-LdoReadmeWithTerraformDocs',
+        'Use-LdoVenv',
+        'Write-LdoLog'
+    )
 
     # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.
     CmdletsToExport = '*'
@@ -125,7 +220,7 @@
             IconUri = 'https://libredevops.org/favicon.ico'
 
             Tags = 'terraform', 'devops', 'azure', 'checkov', 'helpers'
-            ReleaseNotes = 'See CHANGELOG.md for full details'
+            ReleaseNotes = 'v2.0.0 breaking: all commands renamed to the Ldo prefix. Standardised help, validation, logging, and tests across every module. See README.md.'
         }
     }
 }

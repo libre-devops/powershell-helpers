@@ -2,6 +2,36 @@
 
 All notable changes to LibreDevOpsHelpers are recorded here.
 
+## 2.0.0
+
+### Changed (breaking)
+- Every public command was renamed to use the `Ldo` prefix (for example `Invoke-TerraformPlan`
+  is now `Invoke-LdoTerraformPlan`). There are no backwards-compatible aliases. Callers must
+  update to the new names.
+- Minimum supported PowerShell is now 7.2.
+- `FunctionsToExport` in the manifest is now an explicit list of all exported commands.
+
+### Added
+- Comment-based help, `[CmdletBinding()]`, `[OutputType()]`, and parameter validation across
+  every function.
+- A Pester test suite covering every module, plus an analyzer-clean PSScriptAnalyzer pass run by
+  `Invoke-Tests.ps1` and a GitHub Actions lint and test workflow.
+- Shared `LibreDevOpsHelpers.Utils` helpers `Assert-LdoLastExitCode` and `Get-LdoPublicIpAddress`,
+  now reused across the Azure resource and tooling modules.
+- New and completed functionality: split temporary IP access rules into explicit add/remove
+  functions for Key Vault, storage, NSG, and function apps; `Connect-LdoAzureCliManagedIdentity`;
+  secure-string handling for Azure DevOps PATs and Docker registry credentials; and Pester custom
+  Should operators with `Register-LdoPesterAssertion`.
+
+### Fixed
+- Numerous correctness bugs surfaced during the rewrite, including `Invoke-TerraformDestroy`
+  ignoring its destroy arguments, the Trivy skip-policy arguments being concatenated into one
+  token, the Azure DevOps org lookup dereferencing the response before its null check, the NSG
+  rule helper ignoring port and prefix parameters, and the Pester runner referencing an undefined
+  configuration variable.
+- Functions no longer call `exit` or use `Invoke-Expression`; native CLI failures are detected via
+  exit-code checks.
+
 ## 1.2.0
 
 ### Added
