@@ -1,32 +1,56 @@
-# Define module name and path
-$moduleName = "LibreDevOpsHelpers"
-$modulePath = ".\LibreDevOpsHelpers"
-$psd1Path   = "$modulePath\$moduleName.psd1"
+[CmdletBinding()]
+param(
+    [string]$WorkingDirectory = $PSScriptRoot,
+    [string]$ApiKey
+)
 
-# Get API key from environment
-$nugetToken = $Env:NUGET_API_KEY
+$ErrorActionPreference = 'Stop'
 
-# Register PowerShell Gallery as a PSResource repository (if not already)
-if (-not (Get-PSResourceRepository -Name "PSGallery" -ErrorAction SilentlyContinue)) {
-    Register-PSResourceRepository -Name "PSGallery" -Uri "https://www.powershellgallery.com/api/v2" -Trusted
+if ($WorkingDirectory) {
+    Set-Location -Path $WorkingDirectory
 }
 
-Write-Host "Publishing to PowerShell Gallery..."
+# Define module name and path
+$moduleName = 'LibreDevOpsHelpers'
+$modulePath = Join-Path '.' $moduleName
+$psd1Path = Join-Path $modulePath "$moduleName.psd1"
 
-# Build splat for Publish-PSResource
-$PublishSplat = @{
-    Path                 = $psd1Path
-    Repository           = "PSGallery"
-    ApiKey               = $nugetToken
+# Resolve the API key: explicit parameter first, then the local env var, then the
+# name used by the CI workflow.
+if (-not $ApiKey) {
+    $ApiKey = $Env:PSGALLERY_TOKEN
+}
+if (-not $ApiKey) {
+    $ApiKey = $Env:NUGET_API_KEY
+}
+if (-not $ApiKey) {
+    throw 'No API key found. Set PSGALLERY_TOKEN or NUGET_API_KEY, or pass -ApiKey.'
+}
+
+# Fail early if the manifest is invalid rather than during upload.
+Write-Host "Validating manifest: $psd1Path"
+Test-ModuleManifest -Path $psd1Path | Out-Null
+
+# Register PowerShell Gallery as a PSResource repository (if not already)
+if (-not (Get-PSResourceRepository -Name 'PSGallery' -ErrorAction SilentlyContinue)) {
+    Register-PSResourceRepository -Name 'PSGallery' -Uri 'https://www.powershellgallery.com/api/v2' -Trusted
+}
+
+Write-Host 'Publishing to PowerShell Gallery...'
+
+$publishSplat = @{
+    Path                  = $psd1Path
+    Repository            = 'PSGallery'
+    ApiKey                = $ApiKey
     SkipDependenciesCheck = $true
 }
 
-# Optional: handle RequiredModules edge case
-$ManifestData = Import-PowerShellDataFile -Path $psd1Path
-if ($ManifestData.RequiredModules) {
-    $PublishSplat.SkipModuleManifestValidate = $true
+# Handle the RequiredModules edge case
+$manifestData = Import-PowerShellDataFile -Path $psd1Path
+if ($manifestData.RequiredModules) {
+    $publishSplat.SkipModuleManifestValidate = $true
 }
 
-Publish-PSResource @PublishSplat
+Publish-PSResource @publishSplat
 
-Write-Host "Done publishing to PSGallery."
+Write-Host "Done publishing $moduleName $($manifestData.ModuleVersion) to PSGallery."

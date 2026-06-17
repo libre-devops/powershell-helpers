@@ -12,7 +12,7 @@
     RootModule = '.\LibreDevOpsHelpers.psm1'
 
     # Version number of this module.
-    ModuleVersion = '1.1.2'
+    ModuleVersion = '1.2.0'
 
     # Supported PSEditions
     # CompatiblePSEditions = @()
@@ -78,6 +78,7 @@
         'LibreDevOpsHelpers.Choco/LibreDevOpsHelpers.Choco.psm1',
         'LibreDevOpsHelpers.Docker/LibreDevOpsHelpers.Docker.psm1',
         'LibreDevOpsHelpers.Github/LibreDevOpsHelpers.Github.psm1',
+        'LibreDevOpsHelpers.Graph/LibreDevOpsHelpers.Graph.psm1',
         'LibreDevOpsHelpers.Homebrew/LibreDevOpsHelpers.Homebrew.psm1',
         'LibreDevOpsHelpers.Logger/LibreDevOpsHelpers.Logger.psm1',
         'LibreDevOpsHelpers.Packer/LibreDevOpsHelpers.Packer.psm1',
@@ -114,7 +115,6 @@
     # FileList = @()
 
     # Private data to pass to the module specified in RootModule/ModuleToProcess. This may also contain a PSData hashtable with additional module metadata used by PowerShell.
-    # LibreDevOpsHelpers.psd1  – only the PrivateData → PSData block shown
 
     PrivateData = @{
         PSData = @{

@@ -39,6 +39,23 @@ function Get-InstalledPrograms
     }
 }
 
+# Generate a random sequence of characters from the given alphabet
+function New-RandomSequence
+{
+    param (
+        [int] $length,
+        [string] $alphabet
+    )
+
+    $sequence = New-Object char[] $length
+    for ($i = 0; $i -lt $length; $i++) {
+        $randomIndex = Get-Random -Minimum 0 -Maximum $alphabet.Length
+        $sequence[$i] = $alphabet[$randomIndex]
+    }
+
+    return $sequence -join ''
+}
+
 # Generate a new password
 function New-Password
 {
@@ -50,23 +67,6 @@ function New-Password
         [string] $numbers = '0123456789',
         [string] $special = '!@#$%^&*()_+<>,.?/:;~`-='
     )
-
-    # Helper function to generate a random sequence from the alphabet
-    function New-RandomSequence
-    {
-        param (
-            [int] $length,
-            [string] $alphabet
-        )
-
-        $sequence = New-Object char[] $length
-        for ($i = 0; $i -lt $length; $i++) {
-            $randomIndex = Get-Random -Minimum 0 -Maximum $alphabet.Length
-            $sequence[$i] = $alphabet[$randomIndex]
-        }
-
-        return $sequence -join ''
-    }
 
     try
     {
@@ -80,9 +80,9 @@ function New-Password
 
         _LogMessage -Level "INFO" -Message "Generating password with part length $partLength." -InvocationName "$( $MyInvocation.MyCommand.Name )"
 
-        $part1 = Generate-RandomSequence -length $partLength -alphabet $alphabet
-        $part2 = Generate-RandomSequence -length $partLength -alphabet $alphabet
-        $part3 = Generate-RandomSequence -length $partLength -alphabet $alphabet
+        $part1 = New-RandomSequence -length $partLength -alphabet $alphabet
+        $part2 = New-RandomSequence -length $partLength -alphabet $alphabet
+        $part3 = New-RandomSequence -length $partLength -alphabet $alphabet
 
         # Ensuring at least one character from each category in each part
         $part1 = $upper[(Get-Random -Maximum $upper.Length)] + $part1.Substring(1)
@@ -190,7 +190,7 @@ function Assert-WhichOs
         [switch]$PassThru    # only emit output when this is present
     )
 
-    _LogMessage -Level 'INFO' -Message 'Detecting operating system…' -InvocationName "$( $MyInvocation.MyCommand.Name )"
+    _LogMessage -Level 'INFO' -Message 'Detecting operating system...' -InvocationName "$( $MyInvocation.MyCommand.Name )"
 
     if ($IsLinux)
     {
@@ -223,11 +223,10 @@ function Assert-WhichOs
 # Export functions
 Export-ModuleMember -Function `
     Test-PathExists, `
-     Get-InstalledPrograms, `
-     New-RandomSequence, `
-     New-Password, `
-     Test-EnvironmentVariablesExist, `
-     ConvertTo-Boolean, `
-     ConvertTo-Null, `
-     Convert-AzureResourceId, `
-     Assert-WhichOs
+    Get-InstalledPrograms, `
+    New-RandomSequence, `
+    New-Password, `
+    Test-EnvironmentVariablesExist, `
+    ConvertTo-Boolean, `
+    ConvertTo-Null, `
+    Assert-WhichOs
