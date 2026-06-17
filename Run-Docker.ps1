@@ -1,164 +1,102 @@
 <#
 .SYNOPSIS
-    Automate Docker build & optional push to a registry.
+    Builds a Docker image and optionally pushes it to a registry.
 
 .DESCRIPTION
-    'Run-Docker.ps1' builds a Docker image from a specified Dockerfile (possibly
-    living in a subfolder) and optionally pushes it (with multiple tags) to your registry.
+    Builds a Docker image from a Dockerfile (optionally in a subfolder), applies additional tags,
+    and optionally pushes them to a registry. Uses the LibreDevOpsHelpers Docker helpers.
 
-.PARAMETERS
-    DockerFileName    – Name of the Dockerfile (e.g. “Dockerfile” or “Dockerfile.alpine”).
-    DockerImageName   – Base image name (e.g. “base-images/azdo-agent-containers”).
-    RegistryUrl       – e.g. “ghcr.io”.
-    RegistryUsername  – Your registry user.
-    RegistryPassword  – Your registry password (will be piped in securely).
-    ImageOrg          – Optional override for your org; defaults to RegistryUsername.
-    WorkingDirectory  – Where this PowerShell script runs (default = current folder).
-    BuildContext      – Docker build context (defaults to same as WorkingDirectory).
-    DebugMode         – “true”/“false”; toggles `$DebugPreference`.
-    PushDockerImage   – “true”/“false”; whether to push after build.
-    AdditionalTags    – Array of extra tags (default = latest + yyyy-MM).
+.PARAMETER DockerFileName
+    Name of the Dockerfile, for example Dockerfile or Dockerfile.alpine.
+
+.PARAMETER DockerImageName
+    Base image name, for example base-images/azdo-agent-containers.
+
+.PARAMETER RegistryUrl
+    Registry host, for example ghcr.io.
+
+.PARAMETER RegistryUsername
+    Registry username.
+
+.PARAMETER RegistryPassword
+    Registry password or token. Supplied as a string for pipeline use and converted to a secure
+    string before being passed to the registry.
+
+.PARAMETER ImageOrg
+    Optional organisation override. Defaults to RegistryUsername.
+
+.PARAMETER WorkingDirectory
+    Folder this script runs in. Defaults to the current directory.
+
+.PARAMETER BuildContext
+    Docker build context. Defaults to the current directory.
+
+.PARAMETER DebugMode
+    'true' or 'false'. Toggles DebugPreference.
+
+.PARAMETER PushDockerImage
+    'true' or 'false'. Whether to push after build.
+
+.PARAMETER AdditionalTags
+    Extra tags to apply and push. Defaults to latest and the current year-month.
 
 .EXAMPLE
-    .\Run-Docker.ps1 `
-      -WorkingDirectory $PWD `
-      -BuildContext       "$PWD/containers/alpine" `
-      -DockerFileName     "Dockerfile" `
-      -RegistryUrl        "ghcr.io" `
-      -RegistryUsername   $Env:GHCR_USER `
-      -RegistryPassword   $Env:GHCR_TOKEN `
-      -AdditionalTags     @("latest", (Get-Date -Format "yyyy.MM.dd"))
-
-.NOTES
-    - Ensure Docker is installed and in PATH.
-    - Credentials should come from environment variables or a secret store.
-    - Tested on Windows, Linux, macOS hosts.
-
+    ./Run-Docker.ps1 -BuildContext "$PWD/containers/alpine" -RegistryUrl ghcr.io `
+        -RegistryUsername $Env:GHCR_USER -RegistryPassword $Env:GHCR_TOKEN
 #>
-
-param (
-    [string]   $DockerFileName    = "Dockerfile",
-    [string]   $DockerImageName   = "base-images/azdo-agent-containers",
-    [string]   $RegistryUrl       = "ghcr.io",
+param(
+    [string]   $DockerFileName = 'Dockerfile',
+    [string]   $DockerImageName = 'base-images/azdo-agent-containers',
+    [string]   $RegistryUrl = 'ghcr.io',
     [string]   $RegistryUsername,
     [string]   $RegistryPassword,
     [string]   $ImageOrg,
-    [string]   $WorkingDirectory  = (Get-Location).Path,
-    [string]   $BuildContext      = (Get-Location).Path,
-    [string]   $DebugMode         = "false",
-    [string]   $PushDockerImage   = "true",
-    [string[]] $AdditionalTags    = @("latest", (Get-Date -Format "yyyy-MM"))
+    [string]   $WorkingDirectory = (Get-Location).Path,
+    [string]   $BuildContext = (Get-Location).Path,
+    [string]   $DebugMode = 'false',
+    [string]   $PushDockerImage = 'true',
+    [string[]] $AdditionalTags = @('latest', (Get-Date -Format 'yyyy-MM'))
 )
 
-function Convert-ToBoolean {
-    param($value)
-    switch ($value.ToLower()) {
-        "true"  { return $true }
-        "false" { return $false }
-        default {
-            Write-Error "Invalid boolean: $value"; exit 1
-        }
-    }
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+
+$scriptDir = Split-Path -Path $MyInvocation.MyCommand.Definition -Parent
+$manifest = Join-Path $scriptDir 'LibreDevOpsHelpers' 'LibreDevOpsHelpers.psd1'
+if (-not (Test-Path -LiteralPath $manifest)) {
+    throw "Module manifest not found: $manifest"
 }
+Import-Module $manifest -Force -ErrorAction Stop
 
-function Check-DockerExists {
-    try {
-        $d = Get-Command docker -ErrorAction Stop
-        Write-Host "✔ Docker found: $($d.Source)"
-    } catch {
-        Write-Error "Docker not found in PATH. Aborting."; exit 1
-    }
-}
-
-function Build-DockerImage {
-    [CmdletBinding()]
-    param (
-        [Parameter(Mandatory)]
-        [string] $DockerfilePath,      # e.g. "containers/ubuntu/Dockerfile"
-        [string] $ContextPath = '.'     # e.g. ".", or override to repo root
-    )
-
-    # resolve full paths
-    $fullDockerfilePath = Resolve-Path -Path $DockerfilePath -ErrorAction Stop
-    $fullContextPath    = Resolve-Path -Path $ContextPath    -ErrorAction Stop
-
-    if (-not (Test-Path $fullDockerfilePath)) {
-        Write-Error "Dockerfile not found at $fullDockerfilePath"; return $false
-    }
-    if (-not (Test-Path $fullContextPath)) {
-        Write-Error "Build context not found at $fullContextPath"; return $false
-    }
-
-    Write-Host "⏳ Building '$DockerImageName' from Dockerfile: $fullDockerfilePath"
-    Write-Host "    context: $fullContextPath"
-
-    docker build `
-        -f $fullDockerfilePath `
-        -t $DockerImageName `
-        $fullContextPath | Out-Host
-
-    if ($LASTEXITCODE -ne 0) {
-        Write-Error "docker build failed (exit $LASTEXITCODE)"; return $false
-    }
-    return $true
-}
-
-
-function Push-DockerImage {
-    param([string[]] $FullTagNames)
-
-    Write-Host "🔐 Logging in to $RegistryUrl"
-    $RegistryPassword | docker login $RegistryUrl -u $RegistryUsername --password-stdin
-    if ($LASTEXITCODE -ne 0) {
-        Write-Error "docker login failed (exit $LASTEXITCODE)"; return $false
-    }
-
-    foreach ($tag in $FullTagNames) {
-        Write-Host "📤 Pushing $tag"
-        docker push $tag | Out-Host
-        if ($LASTEXITCODE -ne 0) {
-            Write-Error "docker push failed for $tag (exit $LASTEXITCODE)"
-        }
-    }
-
-    Write-Host "🚪 Logging out"
-    docker logout $RegistryUrl | Out-Host
-    return $true
-}
-
-### Main
-
-# switch to working folder
 Set-Location $WorkingDirectory
 
-# build full image name
 if (-not $ImageOrg) { $ImageOrg = $RegistryUsername }
-$DockerImageName = "{0}/{1}/{2}" -f $RegistryUrl, $ImageOrg, $DockerImageName
+$fullImageName = '{0}/{1}/{2}' -f $RegistryUrl, $ImageOrg, $DockerImageName
 
-# convert booleans
-$DebugMode       = Convert-ToBoolean $DebugMode
-$PushDockerImage = Convert-ToBoolean $PushDockerImage
-if ($DebugMode) { $DebugPreference = "Continue" }
+$debug = ConvertTo-LdoBoolean -Value $DebugMode
+$push = ConvertTo-LdoBoolean -Value $PushDockerImage
+if ($debug) { $DebugPreference = 'Continue' }
 
-# build
-Check-DockerExists
-if (-not (Build-DockerImage -ContextPath $BuildContext -DockerFile $DockerFileName)) {
-    Write-Error "Build failed"; exit 1
-}
+Assert-LdoDockerExists
 
-# tag extras
+$dockerfilePath = Join-Path $BuildContext $DockerFileName
+Build-LdoDockerImage -DockerfilePath $dockerfilePath -ContextPath $BuildContext -ImageName $fullImageName
+
+$tagsToPush = @()
 foreach ($tag in $AdditionalTags) {
-    $fullTag = "{0}:{1}" -f $DockerImageName, $tag
-    Write-Host "🏷 Tagging: $fullTag"
-    docker tag $DockerImageName $fullTag
-}
-
-# push if requested
-if ($PushDockerImage) {
-    $tagsToPush = $AdditionalTags | ForEach-Object { "{0}:{1}" -f $DockerImageName, $_ }
-    if (-not (Push-DockerImage -FullTagNames $tagsToPush)) {
-        Write-Error "Push failed"; exit 1
+    $fullTag = '{0}:{1}' -f $fullImageName, $tag
+    Write-LdoLog -Level INFO -Message "Tagging: $fullTag"
+    docker tag $fullImageName $fullTag
+    if ($LASTEXITCODE -ne 0) {
+        throw "docker tag failed for $fullTag (exit $LASTEXITCODE)."
     }
+    $tagsToPush += $fullTag
 }
 
-Write-Host "✅ All done." -ForegroundColor Green
+if ($push) {
+    $securePassword = ConvertTo-SecureString $RegistryPassword -AsPlainText -Force
+    Push-LdoDockerImage -FullTagNames $tagsToPush -RegistryUrl $RegistryUrl `
+        -RegistryUsername $RegistryUsername -RegistryPassword $securePassword
+}
+
+Write-LdoLog -Level SUCCESS -Message 'All done.'

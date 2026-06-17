@@ -1,10 +1,52 @@
+<#
+.SYNOPSIS
+    Formats Terraform, sorts variables and outputs, regenerates the README, and optionally tags a release.
+
+.DESCRIPTION
+    Uses the LibreDevOpsHelpers Terraform and TerraformDocs helpers to format code, alphabetise
+    variable and output blocks, and regenerate the README with terraform-docs. Optionally commits
+    and pushes a git tag.
+
+.PARAMETER VariablesInFile
+    Variables file to read. Defaults to ./variables.tf.
+
+.PARAMETER VariablesOutFile
+    Variables file to write. Defaults to ./variables.tf.
+
+.PARAMETER OutputsInFile
+    Outputs file to read. Defaults to ./outputs.tf.
+
+.PARAMETER OutputsOutFile
+    Outputs file to write. Defaults to ./outputs.tf.
+
+.PARAMETER GitTag
+    Git tag to create when -GitRelease is set. Defaults to 1.0.0.
+
+.PARAMETER GitCommitMessage
+    Commit message to use when -GitRelease is set.
+
+.PARAMETER SortInputs
+    Sort variable blocks. Defaults to true.
+
+.PARAMETER SortOutputs
+    Sort output blocks. Defaults to true.
+
+.PARAMETER GitRelease
+    Commit, push, and tag the repository. Defaults to false.
+
+.PARAMETER FormatTerraform
+    Run terraform fmt. Defaults to true.
+
+.PARAMETER GenerateNewReadme
+    Regenerate the README with terraform-docs. Defaults to true.
+#>
 param(
-    [string]$VariablesInFile = "./variables.tf",
-    [string]$VariablesOutFile = "./variables.tf",
-    [string]$OutputsInFile = "./outputs.tf",
-    [string]$OutputsOutFile = "./outputs.tf",
-    [string]$GitTag = "1.0.0",
-    [string]$GitCommitMessage = "Update code",
+    [string]$VariablesInFile = './variables.tf',
+    [string]$VariablesOutFile = './variables.tf',
+    [string]$OutputsInFile = './outputs.tf',
+    [string]$OutputsOutFile = './outputs.tf',
+    [string]$GitTag = '1.0.0',
+    [string]$GitCommitMessage = 'Update code',
     [bool]$SortInputs = $true,
     [bool]$SortOutputs = $true,
     [bool]$GitRelease = $false,
@@ -12,196 +54,71 @@ param(
     [bool]$GenerateNewReadme = $true
 )
 
-$CurrentDirectory = (Get-Location).Path
-$ErrorOccurred = $false
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
 
-function Format-Terraform {
-    try {
-        $terraformPath = Get-Command terraform -ErrorAction Stop
-        Write-Host "Success: Terraform found at: $($terraformPath.Source)" -ForegroundColor Green
-        terraform fmt -recursive
-        Write-Host "Success: Terraform formatted using terraform fmt" -ForegroundColor Green
-
-    }
-    catch {
-        Write-Error "Error: Terraform is not installed or not in PATH, or terraform fmt failed due to syntax rror. Exiting."
-        exit 1
-    }
+$scriptDir = Split-Path -Path $MyInvocation.MyCommand.Definition -Parent
+$manifest = Join-Path $scriptDir 'LibreDevOpsHelpers' 'LibreDevOpsHelpers.psd1'
+if (-not (Test-Path -LiteralPath $manifest)) {
+    throw "Module manifest not found: $manifest"
 }
+Import-Module $manifest -Force -ErrorAction Stop
 
-function Git-Release {
-    param (
-        [string]$GitTag,
-        [string]$GitCommitMessage
+function Invoke-GitRelease {
+    param(
+        [Parameter(Mandatory)][string]$Tag,
+        [Parameter(Mandatory)][string]$CommitMessage
     )
 
-    try {
-        $gitPath = Get-Command git -ErrorAction Stop
-        Write-Host "Success: Git found at: $($gitPath.Source)" -ForegroundColor Green
-        Write-Information "Info: Attemting git release"
-        git add --all
-        git commit -m "${GitCommitMessage}"
-        git push
-        git tag $GitTag --force
-        git push --tags --force
-    }
-    catch {
-        Write-Error "Error: Git is not installed or not in PATH, or git release failed due to syntax rror. Exiting."
-        exit 1
-    }
+    $gitPath = Get-Command git -ErrorAction Stop
+    Write-LdoLog -Level INFO -Message "git found at: $($gitPath.Source)"
+
+    git add --all
+    if ($LASTEXITCODE -ne 0) { throw "git add failed (exit $LASTEXITCODE)." }
+    git commit -m $CommitMessage
+    if ($LASTEXITCODE -ne 0) { throw "git commit failed (exit $LASTEXITCODE)." }
+    git push
+    if ($LASTEXITCODE -ne 0) { throw "git push failed (exit $LASTEXITCODE)." }
+    git tag $Tag --force
+    if ($LASTEXITCODE -ne 0) { throw "git tag failed (exit $LASTEXITCODE)." }
+    git push --tags --force
+    if ($LASTEXITCODE -ne 0) { throw "git push --tags failed (exit $LASTEXITCODE)." }
+
+    Write-LdoLog -Level SUCCESS -Message "Released tag $Tag."
 }
-
-function Read-TerraformFile {
-    param (
-        [string]$Filename
-    )
-
-    if (Test-Path $Filename) {
-        try {
-            return Get-Content $Filename -Raw
-        }
-        catch {
-            Write-Error "Error: Error reading file '$Filename': $_"
-            $Global:ErrorOccurred = $true
-            return $null
-        }
-    }
-    else {
-        Write-Error "File not found: $Filename"
-        $Global:ErrorOccurred = $true
-        return $null
-    }
-}
-
-function Write-TerraformFile {
-    param (
-        [string]$Filename,
-        [string]$FileContent
-    )
-
-    if ($null -ne $FileContent) {
-        try {
-            $FileContent | Set-Content $Filename
-        }
-        catch {
-            Write-Error "Error: Error writing to file '$Filename': $_"
-            $Global:ErrorOccurred = $true
-        }
-    }
-    else {
-        Write-Error "Error: No content to write to $Filename"
-        $Global:ErrorOccurred = $true
-    }
-}
-
-function Sort-TerraformOutputs {
-    param (
-        [string]$OutputsContent
-    )
-
-    try {
-        $pattern = 'output\s+"[^"]+"\s+\{[\s\S]*?\n\}'
-        $outputs = Select-String -Pattern $pattern -InputObject $OutputsContent -AllMatches | ForEach-Object { $_.Matches } | ForEach-Object { $_.Value }
-        return ($outputs | Sort-Object { [regex]::Match($_, 'output\s+"([^"]+)"').Groups[1].Value }) -join "`n`n"
-    }
-    catch {
-        Write-Error "Error: Error sorting Terraform outputs: $_"
-        $Global:ErrorOccurred = $true
-        return $null
-    }
-}
-
-function Sort-TerraformVariables {
-    param (
-        [string]$VariablesContent
-    )
-
-    try {
-        $pattern = 'variable\s+"[^"]+"\s+\{[\s\S]*?\n\}'
-        $variables = Select-String -Pattern $pattern -InputObject $VariablesContent -AllMatches | ForEach-Object { $_.Matches } | ForEach-Object { $_. Value }
-        return ($variables | Sort-Object { [regex]::Match($_, 'variable\s+"([^"]+)"').Groups[1].Value }) -join "`n`n"
-    }
-    catch {
-        Write-Error "Error: Error sorting Terraform variables: $_"
-        $Global:ErrorOccurred = $true
-        return $null
-    }
-}
-
-function Update-ReadmeWithTerraformDocs {
-
-    try {
-        $terraformDocsPath = Get-Command terraform-docs -ErrorAction Stop
-        Write-Host "Success: Terraform-docs found at: $($terraformDocsPath.Source)" -ForegroundColor Green
-        }
-    catch {
-        Write-Error "Error: Terraform-docs is not installed or not in PATH, Skipping README generation."
-    }
-
-
-    $buildFile = ""
-    if (Test-Path "./build.tf") {
-        $buildFile = "./build.tf"
-        Write-Host "Success: ${buildFile} found" -ForegroundColor Green
-    } elseif (Test-Path "./main.tf") {
-        $buildFile = "./main.tf"
-        Write-Host "Success: ${buildFile} found" -ForegroundColor Green
-    }
-
-    if ($buildFile -ne "") {
-        Set-Content "README.md" -Value '```hcl'
-        Get-Content $buildFile | Add-Content "README.md"
-        Add-Content "README.md" -Value '```'
-
-        try {
-            $terraformDocs = terraform-docs markdown .
-            $terraformDocs | Add-Content "README.md"
-        } catch {
-            Write-Error "Error: Failed to generate or append terraform-docs markdown. Make sure terraform-docs is installed and in PATH."
-        }
-    } else {
-        Write-Warning "Warning: Not a build directory, no build.tf or main.tf found"
-    }
-}
-
 
 if ($FormatTerraform) {
-    Format-Terraform
+    Format-LdoTerraform -CodePath (Get-Location).Path
 }
 
 if ($SortInputs) {
-    $VariablesContent = Read-TerraformFile -Filename $VariablesInFile
-    if ($VariablesContent) {
-        $SortedVariablesContent = Sort-TerraformVariables -VariablesContent $VariablesContent
-        if ($SortedVariablesContent) {
-            Write-TerraformFile -Filename $VariablesOutFile -FileContent $SortedVariablesContent
-            Write-Host "Success: Sorted Terraform variables written to $VariablesOutFile" -ForegroundColor Green
+    $variablesContent = Get-LdoTerraformFileContent -Filename $VariablesInFile
+    if (-not [string]::IsNullOrWhiteSpace($variablesContent)) {
+        $sorted = Format-LdoTerraformVariables -VariablesContent $variablesContent
+        if (-not [string]::IsNullOrWhiteSpace($sorted)) {
+            Set-LdoTerraformFileContent -Filename $VariablesOutFile -Content $sorted
+            Write-LdoLog -Level SUCCESS -Message "Sorted Terraform variables written to $VariablesOutFile"
         }
     }
 }
 
 if ($SortOutputs) {
-    $OutputsContent = Read-TerraformFile -Filename $OutputsInFile
-    if ($OutputsContent) {
-        $SortedOutputsContent = Sort-TerraformOutputs -OutputsContent $OutputsContent
-        if ($SortedOutputsContent) {
-            Write-TerraformFile -Filename $OutputsOutFile -FileContent $SortedOutputsContent
-            Write-Host "Success: Sorted Terraform outputs written to $OutputsOutFile" -ForegroundColor Green
+    $outputsContent = Get-LdoTerraformFileContent -Filename $OutputsInFile
+    if (-not [string]::IsNullOrWhiteSpace($outputsContent)) {
+        $sorted = Format-LdoTerraformOutputs -OutputsContent $outputsContent
+        if (-not [string]::IsNullOrWhiteSpace($sorted)) {
+            Set-LdoTerraformFileContent -Filename $OutputsOutFile -Content $sorted
+            Write-LdoLog -Level SUCCESS -Message "Sorted Terraform outputs written to $OutputsOutFile"
         }
     }
 }
 
 if ($GenerateNewReadme) {
-    Update-ReadmeWithTerraformDocs
+    Update-LdoReadmeWithTerraformDocs -CodePath (Get-Location).Path
 }
 
 if ($GitRelease) {
-    Git-Release -GitTag "${GitTag}" -GitCommitMessage "${GitCommitMessage}"
+    Invoke-GitRelease -Tag $GitTag -CommitMessage $GitCommitMessage
 }
 
-if ($ErrorOccurred) {
-    Write-Error "Error: The script completed with errors. Check the error messages above."
-}
-else {
-    Write-Host "Success: The script completed successfully without errors." -ForegroundColor Green
-}
+Write-LdoLog -Level SUCCESS -Message 'Terraform release script completed.'

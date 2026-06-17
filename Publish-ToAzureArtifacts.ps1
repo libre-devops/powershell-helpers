@@ -13,7 +13,7 @@ param(
 
 )
 
-# ─── ENVIRONMENT VALIDATION ─────────────────────────────────────────────────────
+# - ENVIRONMENT VALIDATION -
 $orgRaw = $env:AZDO_ORG_SERVICE_URL
 $project = $env:AZDO_PROJECT_NAME
 $token = $env:AZDO_ARTIFACTS_PAT ?? $env:SYSTEM_ACCESSTOKEN
@@ -40,7 +40,7 @@ if (-not $token)
 # Normalise organisation name
 $orgName = if ($orgRaw -match '^https?://')
 {
-    # Convert URI → take the first path segment after the authority
+    # Convert URI -> take the first path segment after the authority
     ([uri]$orgRaw).Segments[1].TrimEnd('/')
 }
 else
@@ -57,11 +57,11 @@ $ErrorActionPreference = 'Stop'
 
 $org = $orgName
 $feed = $FeedName
-# ─── Build the credential object correctly ─────────────────────────────────────
+# - Build the credential object correctly -
 $securePassword = ConvertTo-SecureString $token -AsPlainText -Force
 $credential = [pscredential]::new('AzureDevOps', $securePassword)
 
-# ─── Build the feed URL that PowerShellGet 2.x accepts ─────────────────────────
+# - Build the feed URL that PowerShellGet 2.x accepts -
 $feedUri = "https://pkgs.dev.azure.com/$org/$project/_packaging/$feed/nuget/v3/index.json"
 
 Write-Host "Adding VSS_NUGET_EXTERNAL_FEED_ENDPOINTS to the current user's environment variables"
@@ -93,7 +93,7 @@ try
 }
 catch
 {
-    Write-Error "❌ Failed to register repository '$feed' : $_"
+    Write-Error "Failed to register repository '$feed' : $_"
     exit 1
 }
 
@@ -110,7 +110,7 @@ try
 }
 catch
 {
-    Write-Error "❌ Failed to Publish-Module '$feed' : $_"
+    Write-Error "Failed to Publish-Module '$feed' : $_"
     exit 1
 }
 

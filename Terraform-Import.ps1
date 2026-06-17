@@ -1,98 +1,94 @@
+<#
+.SYNOPSIS
+    Plans Terraform, converts the plan to JSON, and imports existing Azure resources.
+
+.DESCRIPTION
+    Runs terraform plan, converts it to JSON, then resolves and imports existing Azure resources
+    into state using the LibreDevOpsHelpers Terraform import helpers. Use -DryRun to log the
+    import commands without executing them.
+
+.PARAMETER PlanFile
+    Binary plan file name. Defaults to tfplan.plan.
+
+.PARAMETER PlanExtraArgsJson
+    Additional terraform plan arguments as a JSON array string.
+
+.PARAMETER CodePath
+    Terraform configuration folder. Defaults to the current directory.
+
+.PARAMETER DryRun
+    When set, logs the terraform import commands without executing them.
+
+.PARAMETER DeleteGeneratedFiles
+    When set, removes the plan, JSON, and manifest files at the end.
+#>
 param(
-    [string]$PlanFile = "tfplan.plan",
+    [string]$PlanFile = 'tfplan.plan',
     [string]$PlanExtraArgsJson = '[]',
     [string]$CodePath = (Get-Location).Path,
-
-    [switch]$WhatIf,
+    [switch]$DryRun,
     [switch]$DeleteGeneratedFiles
 )
 
-#───────────────────────────────────────────────────────────────────────────────
-#  0.  Import helper modules
-#───────────────────────────────────────────────────────────────────────────────
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+
 $scriptDir = Split-Path -Path $MyInvocation.MyCommand.Definition -Parent
-$modules = @("Logger", "Terraform.AzureImport", "Terraform")
-foreach ($m in $modules)
-{
-    $psm1 = "$scriptDir\LibreDevOpsHelpers.$m\LibreDevOpsHelpers.$m.psm1"
-    if (-not (Test-Path -LiteralPath $psm1))
-    {
-        Write-Host "ERROR: [$( $MyInvocation.MyCommand.Name )] Module not found: $psm1" -ForegroundColor Red
-        exit 1
-    }
-    Import-Module $psm1 -Force -ErrorAction Stop
+$manifest = Join-Path $scriptDir 'LibreDevOpsHelpers' 'LibreDevOpsHelpers.psd1'
+if (-not (Test-Path -LiteralPath $manifest)) {
+    throw "Module manifest not found: $manifest"
 }
+Import-Module $manifest -Force -ErrorAction Stop
 
-#───────────────────────────────────────────────────────────────────────────────
-#  1.  Prepare common variables
-#───────────────────────────────────────────────────────────────────────────────
-$extraArgsArray = ConvertFrom-Json $PlanExtraArgsJson
-$PlanFileBase = [IO.Path]::GetFileNameWithoutExtension($PlanFile)
-$JsonFile = "$PlanFile.json"
+$extraArgsArray = [string[]](ConvertFrom-Json $PlanExtraArgsJson)
+$planFileBase = [IO.Path]::GetFileNameWithoutExtension($PlanFile)
+$jsonFile = "$PlanFile.json"
 
-#───────────────────────────────────────────────────────────────────────────────
-#  2.  terraform plan  →  JSON
-#───────────────────────────────────────────────────────────────────────────────
-try
-{
-    _LogMessage INFO "terraform plan → $PlanFile" -InvocationName $MyInvocation.MyCommand.Name
-    Invoke-TerraformPlan -CodePath $CodePath -PlanArgs $extraArgsArray -PlanFile $PlanFile
+try {
+    Write-LdoLog -Level INFO -Message "terraform plan to $PlanFile"
+    Invoke-LdoTerraformPlan -CodePath $CodePath -PlanArgs $extraArgsArray -PlanFile $PlanFile
 
-    _LogMessage INFO "Converting plan → $JsonFile" -InvocationName $MyInvocation.MyCommand.Name
-    Convert-TerraformPlanToJson -CodePath $CodePath -PlanFile $PlanFile
+    Write-LdoLog -Level INFO -Message "Converting plan to $jsonFile"
+    Convert-LdoTerraformPlanToJson -CodePath $CodePath -PlanFile $PlanFile
 }
-catch
-{
-    _LogMessage ERROR "Terraform plan/show failed: $_" -InvocationName $MyInvocation.MyCommand.Name
+catch {
+    Write-LdoLog -Level ERROR -Message "Terraform plan/show failed: $_"
     throw
 }
 
-#───────────────────────────────────────────────────────────────────────────────
-#  3.  Import helper (-WhatIf only if caller asked for it)
-#───────────────────────────────────────────────────────────────────────────────
-try
-{
-    _LogMessage INFO "Invoking import helper" -InvocationName $MyInvocation.MyCommand.Name
+try {
+    Write-LdoLog -Level INFO -Message 'Invoking import helper.'
 
     $importParams = @{
-        PlanJson = $JsonFile
+        PlanJson = $jsonFile
         CodePath = $CodePath
     }
-    if ($WhatIf)
-    {
-        $importParams.WhatIf = $true
+    if ($DryRun) {
+        $importParams.DryRun = $true
     }
 
-    Invoke-TerraformImportFromPlan @importParams
+    Invoke-LdoTerraformImportFromPlan @importParams
 }
-catch
-{
-    _LogMessage ERROR "Invoke-TerraformImportFromPlan failed: $_" -InvocationName $MyInvocation.MyCommand.Name
+catch {
+    Write-LdoLog -Level ERROR -Message "Invoke-LdoTerraformImportFromPlan failed: $_"
     throw
 }
-finally
-{
-    if ($DeleteGeneratedFiles)
-    {
+finally {
+    if ($DeleteGeneratedFiles) {
         foreach ($f in @(
-            $PlanFile,
-            $JsonFile,
-            "import-map.csv",
-            "${PlanFileBase}-destroy.tfplan",
-            "${PlanFileBase}-destroy.tfplan.json"
-        ))
-        {
-            if (Test-Path $f)
-            {
-                try
-                {
+                $PlanFile,
+                $jsonFile,
+                'import-map.csv',
+                "$planFileBase-destroy.tfplan",
+                "$planFileBase-destroy.tfplan.json"
+            )) {
+            if (Test-Path $f) {
+                try {
                     Remove-Item $f -Force -ErrorAction Stop
-                    _LogMessage DEBUG "Deleted $f" -InvocationName $MyInvocation.MyCommand.Name
+                    Write-LdoLog -Level DEBUG -Message "Deleted $f"
                 }
-                catch
-                {
-                    _LogMessage WARN "Failed to delete $f – $( $_.Exception.Message )" `
-                                    -InvocationName $MyInvocation.MyCommand.Name
+                catch {
+                    Write-LdoLog -Level WARN -Message "Failed to delete $f : $($_.Exception.Message)"
                 }
             }
         }
