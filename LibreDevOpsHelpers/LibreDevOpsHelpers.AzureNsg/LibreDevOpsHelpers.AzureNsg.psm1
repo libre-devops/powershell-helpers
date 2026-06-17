@@ -1,81 +1,160 @@
-function Set-CurrentIPInNsg
-{
-    param (
-        [string]$ResourceGroup, # Accept the resource group as a parameter
-        [string]$NsgName, # Accept the NSG name as a parameter
-        [bool]$AddRule,
-        [string]$RuleName,
-        [int]$Priority,
-        [string]$Direction,
-        [string]$Access,
-        [string]$Protocol = "Tcp",
-        [string]$SourcePortRange = "*",
-        [string]$DestinationPortRange = "*",
-        [string]$DestinationAddressPrefix = "VirtualNetwork"
-    )
+Set-StrictMode -Version Latest
 
-    try
-    {
-        if ($AddRule)
-        {
-            $currentIp = (Invoke-RestMethod -Uri "https://checkip.amazonaws.com").Trim()
-            if (-not $currentIp)
-            {
-                _LogMessage -Level "ERROR" -Message "Failed to obtain current IP." -InvocationName "$( $MyInvocation.MyCommand.Name )"
-                return
-            }
+function Assert-LdoNsgExitCode {
+    # Internal. Throws when the last native command exited non-zero.
+    [CmdletBinding()]
+    [OutputType([void])]
+    param([Parameter(Mandatory)][string]$Operation)
 
-            $sourceAddressPrefix = $currentIp
-
-            # Check if the rule already exists using Azure CLI
-            $existingRule = az network nsg rule list --resource-group $ResourceGroup --nsg-name $NsgName --query "[?name=='$RuleName']" -o tsv
-
-            if ($existingRule)
-            {
-                _LogMessage -Level "INFO" -Message "Rule $RuleName already exists on $NsgName. Updating it with the new IP address." -InvocationName "$( $MyInvocation.MyCommand.Name )"
-                # Remove existing rule to update
-                az network nsg rule delete --resource-group $ResourceGroup --nsg-name $NsgName --name $RuleName
-            }
-
-            # Adding the rule using Azure CLI
-            az network nsg rule create --resource-group $ResourceGroup `
-                                        --nsg-name $NsgName `
-                                        --name $RuleName `
-                                        --access $Access `
-                                        --protocol $Protocol `
-                                        --direction $Direction `
-                                        --priority $Priority `
-                                        --source-address-prefixes $sourceAddressPrefix `
-                                        --source-port-ranges "*" `
-                                        --destination-address-prefixes "VirtualNetwork" `
-                                        --destination-port-ranges "*" | Out-Null
-
-            _LogMessage -Level "INFO" -Message "Rule $RuleName has been added/updated successfully to $NsgName." -InvocationName "$( $MyInvocation.MyCommand.Name )"
-        }
-        else
-        {
-            # Removing the rule using Azure CLI
-            $existingRule = az network nsg rule list --resource-group $ResourceGroup --nsg-name $NsgName --query "[?name=='$RuleName']" -o tsv
-            if ($existingRule)
-            {
-                az network nsg rule delete --resource-group $ResourceGroup --nsg-name $NsgName --name $RuleName
-                _LogMessage -Level "INFO" -Message "Rule $RuleName has been removed successfully from $NsgName" -InvocationName "$( $MyInvocation.MyCommand.Name )"
-            }
-            else
-            {
-                _LogMessage -Level "INFO" -Message "Rule $RuleName does not exist on $NsgName. No action needed." -InvocationName "$( $MyInvocation.MyCommand.Name )"
-            }
-        }
-
-        # Applying changes to the NSG is automatically handled by Azure CLI when rules are added/removed
-
-        _LogMessage -Level "INFO" -Message "NSG - $NsgName - been updated successfully." -InvocationName "$( $MyInvocation.MyCommand.Name )"
-    }
-    catch
-    {
-        _LogMessage -Level "ERROR" -Message "An error occurred: $_" -InvocationName "$( $MyInvocation.MyCommand.Name )"
-        throw
+    if ($LASTEXITCODE -ne 0) {
+        throw "$Operation failed with exit code $LASTEXITCODE."
     }
 }
 
-Export-ModuleMember -Function Set-CurrentIPInNsg
+function Get-LdoNsgPublicIpAddress {
+    # Internal. Returns the caller's public IPv4 address.
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+
+    $ip = (Invoke-RestMethod -Uri 'https://checkip.amazonaws.com' -ErrorAction Stop).Trim()
+    if ([string]::IsNullOrWhiteSpace($ip)) {
+        throw 'Failed to determine the public IP address.'
+    }
+    return $ip
+}
+
+function Add-LdoNsgCurrentIpRule {
+    <#
+    .SYNOPSIS
+        Creates or updates a network security group rule for the caller's public IP.
+
+    .DESCRIPTION
+        Resolves the caller's current public IP and creates an NSG rule allowing (or denying)
+        it. If a rule with the same name already exists it is deleted and recreated, so the
+        rule always reflects the current IP. Requires the Azure CLI to be signed in.
+
+    .PARAMETER ResourceGroup
+        Resource group containing the NSG.
+
+    .PARAMETER NsgName
+        Name of the network security group.
+
+    .PARAMETER RuleName
+        Name of the rule to create or update.
+
+    .PARAMETER Priority
+        Rule priority (100-4096). Lower numbers are evaluated first.
+
+    .PARAMETER Direction
+        Inbound or Outbound.
+
+    .PARAMETER Access
+        Allow or Deny.
+
+    .PARAMETER Protocol
+        Protocol to match. Defaults to Tcp.
+
+    .PARAMETER SourcePortRange
+        Source port range. Defaults to '*'.
+
+    .PARAMETER DestinationPortRange
+        Destination port range. Defaults to '*'.
+
+    .PARAMETER DestinationAddressPrefix
+        Destination address prefix. Defaults to 'VirtualNetwork'.
+
+    .EXAMPLE
+        Add-LdoNsgCurrentIpRule -ResourceGroup rg -NsgName nsg -RuleName allow-me `
+            -Priority 200 -Direction Inbound -Access Allow
+
+    .OUTPUTS
+        None
+    #>
+    [CmdletBinding()]
+    [OutputType([void])]
+    param(
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$ResourceGroup,
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$NsgName,
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$RuleName,
+        [Parameter(Mandatory)][ValidateRange(100, 4096)][int]$Priority,
+        [Parameter(Mandatory)][ValidateSet('Inbound', 'Outbound')][string]$Direction,
+        [Parameter(Mandatory)][ValidateSet('Allow', 'Deny')][string]$Access,
+        [ValidateSet('Tcp', 'Udp', 'Icmp', 'Esp', 'Ah', '*')][string]$Protocol = 'Tcp',
+        [string]$SourcePortRange = '*',
+        [string]$DestinationPortRange = '*',
+        [string]$DestinationAddressPrefix = 'VirtualNetwork'
+    )
+
+    $ip = Get-LdoNsgPublicIpAddress
+
+    $existing = az network nsg rule list --resource-group $ResourceGroup --nsg-name $NsgName --query "[?name=='$RuleName']" -o tsv
+    if ($existing) {
+        Write-LdoLog -Level INFO -Message "Rule $RuleName already exists on $NsgName; recreating it with the current IP."
+        az network nsg rule delete --resource-group $ResourceGroup --nsg-name $NsgName --name $RuleName | Out-Null
+        Assert-LdoNsgExitCode -Operation "az network nsg rule delete ($RuleName)"
+    }
+
+    az network nsg rule create `
+        --resource-group $ResourceGroup `
+        --nsg-name $NsgName `
+        --name $RuleName `
+        --access $Access `
+        --protocol $Protocol `
+        --direction $Direction `
+        --priority $Priority `
+        --source-address-prefixes $ip `
+        --source-port-ranges $SourcePortRange `
+        --destination-address-prefixes $DestinationAddressPrefix `
+        --destination-port-ranges $DestinationPortRange | Out-Null
+    Assert-LdoNsgExitCode -Operation "az network nsg rule create ($RuleName)"
+
+    Write-LdoLog -Level INFO -Message "Rule $RuleName set for $ip on $NsgName."
+}
+
+function Remove-LdoNsgRule {
+    <#
+    .SYNOPSIS
+        Removes a network security group rule by name if it exists.
+
+    .DESCRIPTION
+        Deletes the named NSG rule when present, and does nothing (no error) when it is
+        already absent. Requires the Azure CLI to be signed in.
+
+    .PARAMETER ResourceGroup
+        Resource group containing the NSG.
+
+    .PARAMETER NsgName
+        Name of the network security group.
+
+    .PARAMETER RuleName
+        Name of the rule to remove.
+
+    .EXAMPLE
+        Remove-LdoNsgRule -ResourceGroup rg -NsgName nsg -RuleName allow-me
+
+    .OUTPUTS
+        None
+    #>
+    [CmdletBinding()]
+    [OutputType([void])]
+    param(
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$ResourceGroup,
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$NsgName,
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$RuleName
+    )
+
+    $existing = az network nsg rule list --resource-group $ResourceGroup --nsg-name $NsgName --query "[?name=='$RuleName']" -o tsv
+    if (-not $existing) {
+        Write-LdoLog -Level INFO -Message "Rule $RuleName does not exist on $NsgName; nothing to remove."
+        return
+    }
+
+    az network nsg rule delete --resource-group $ResourceGroup --nsg-name $NsgName --name $RuleName | Out-Null
+    Assert-LdoNsgExitCode -Operation "az network nsg rule delete ($RuleName)"
+    Write-LdoLog -Level INFO -Message "Removed rule $RuleName from $NsgName."
+}
+
+Export-ModuleMember -Function `
+    Add-LdoNsgCurrentIpRule, `
+    Remove-LdoNsgRule
