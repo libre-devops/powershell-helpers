@@ -1,29 +1,5 @@
 Set-StrictMode -Version Latest
 
-function Assert-LdoFuncExitCode {
-    # Internal. Throws when the last native command exited non-zero.
-    [CmdletBinding()]
-    [OutputType([void])]
-    param([Parameter(Mandatory)][string]$Operation)
-
-    if ($LASTEXITCODE -ne 0) {
-        throw "$Operation failed with exit code $LASTEXITCODE."
-    }
-}
-
-function Get-LdoFuncPublicIpAddress {
-    # Internal. Returns the caller's public IPv4 address.
-    [CmdletBinding()]
-    [OutputType([string])]
-    param()
-
-    $ip = (Invoke-RestMethod -Uri 'https://checkip.amazonaws.com' -ErrorAction Stop).Trim()
-    if ([string]::IsNullOrWhiteSpace($ip)) {
-        throw 'Failed to determine the public IP address.'
-    }
-    return $ip
-}
-
 function Compress-LdoFunctionAppSource {
     <#
     .SYNOPSIS
@@ -144,7 +120,7 @@ function Invoke-LdoFunctionAppZipDeploy {
 
         Write-LdoLog -Level INFO -Message "Deploying zip to $FunctionAppName."
         az @cli | Out-Null
-        Assert-LdoFuncExitCode -Operation "az functionapp deployment ($FunctionAppName)"
+        Assert-LdoLastExitCode -Operation "az functionapp deployment ($FunctionAppName)"
 
         if ($RestartOnFinish) {
             Write-LdoLog -Level INFO -Message "Restarting function app $FunctionAppName."
@@ -189,7 +165,7 @@ function Get-LdoFunctionAppDefaultUrl {
     )
 
     $hostName = az functionapp show --resource-group $ResourceGroup --name $FunctionAppName --query 'defaultHostName' -o tsv
-    Assert-LdoFuncExitCode -Operation "az functionapp show ($FunctionAppName)"
+    Assert-LdoLastExitCode -Operation "az functionapp show ($FunctionAppName)"
     if (-not $hostName) {
         throw "Unable to retrieve the default host name for $FunctionAppName."
     }
@@ -255,7 +231,7 @@ function Set-LdoFunctionAppSetting {
 
         Write-LdoLog -Level INFO -Message "Applying app settings to $FunctionAppName."
         az functionapp config appsettings set --resource-group $ResourceGroup --name $FunctionAppName --settings "@$tempFile" | Out-Null
-        Assert-LdoFuncExitCode -Operation "az functionapp config appsettings set ($FunctionAppName)"
+        Assert-LdoLastExitCode -Operation "az functionapp config appsettings set ($FunctionAppName)"
 
         Write-LdoLog -Level SUCCESS -Message "Updated app settings on $FunctionAppName."
     }
@@ -307,18 +283,18 @@ function Add-LdoFunctionAppCurrentIpRule {
         [ValidateSet('Allow', 'Deny')][string]$Action = 'Allow'
     )
 
-    $ip = Get-LdoFuncPublicIpAddress
+    $ip = Get-LdoPublicIpAddress
     Write-LdoLog -Level INFO -Message "Current public IP: $ip"
 
     # See https://github.com/Azure/azure-cli/issues/24947 for why both flags are set.
     az functionapp update -g $ResourceGroup -n $FunctionAppName --set publicNetworkAccess=Enabled siteConfig.publicNetworkAccess=Enabled | Out-Null
-    Assert-LdoFuncExitCode -Operation "az functionapp update ($FunctionAppName)"
+    Assert-LdoLastExitCode -Operation "az functionapp update ($FunctionAppName)"
 
     az functionapp config access-restriction set -g $ResourceGroup -n $FunctionAppName --default-action $Action --scm-default-action $Action --use-same-restrictions-for-scm-site true | Out-Null
-    Assert-LdoFuncExitCode -Operation "az functionapp access-restriction set ($FunctionAppName)"
+    Assert-LdoLastExitCode -Operation "az functionapp access-restriction set ($FunctionAppName)"
 
     az functionapp config access-restriction add -g $ResourceGroup -n $FunctionAppName --rule-name $RuleName --action $Action --priority $Priority --ip-address $ip | Out-Null
-    Assert-LdoFuncExitCode -Operation "az functionapp access-restriction add ($FunctionAppName)"
+    Assert-LdoLastExitCode -Operation "az functionapp access-restriction add ($FunctionAppName)"
 
     Write-LdoLog -Level INFO -Message "Added access rule '$RuleName' for $ip on $FunctionAppName."
 }
@@ -359,10 +335,10 @@ function Remove-LdoFunctionAppCurrentIpRule {
     az functionapp config access-restriction remove -g $ResourceGroup -n $FunctionAppName --rule-name $RuleName 2>$null | Out-Null
 
     az functionapp config access-restriction set -g $ResourceGroup -n $FunctionAppName --default-action Deny --scm-default-action Deny --use-same-restrictions-for-scm-site true | Out-Null
-    Assert-LdoFuncExitCode -Operation "az functionapp access-restriction set ($FunctionAppName)"
+    Assert-LdoLastExitCode -Operation "az functionapp access-restriction set ($FunctionAppName)"
 
     az functionapp update -g $ResourceGroup -n $FunctionAppName --set publicNetworkAccess=Disabled siteConfig.publicNetworkAccess=Disabled | Out-Null
-    Assert-LdoFuncExitCode -Operation "az functionapp update ($FunctionAppName)"
+    Assert-LdoLastExitCode -Operation "az functionapp update ($FunctionAppName)"
 
     Write-LdoLog -Level INFO -Message "Removed access rule '$RuleName' and disabled public access on $FunctionAppName."
 }

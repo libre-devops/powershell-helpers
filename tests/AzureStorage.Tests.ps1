@@ -11,18 +11,8 @@ Describe 'AzureStorage module surface' {
     }
 }
 
-Describe 'Get-LdoStoragePublicIpAddress' {
-    It 'returns the trimmed public IP' {
-        InModuleScope LibreDevOpsHelpers.AzureStorage {
-            Mock Invoke-RestMethod { "198.51.100.4`n" }
-            Get-LdoStoragePublicIpAddress | Should -Be '198.51.100.4'
-        }
-    }
-
-    It 'throws when no IP is returned' {
-        InModuleScope LibreDevOpsHelpers.AzureStorage {
-            Mock Invoke-RestMethod { '' }
-            { Get-LdoStoragePublicIpAddress } | Should -Throw
-        }
+Describe 'AzureStorage parameter validation' {
+    It 'requires a storage account name' {
+        { Add-LdoStorageCurrentIpRule -ResourceGroup rg -StorageAccountName '' } | Should -Throw
     }
 }

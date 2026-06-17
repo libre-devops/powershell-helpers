@@ -1,29 +1,5 @@
 Set-StrictMode -Version Latest
 
-function Assert-LdoNsgExitCode {
-    # Internal. Throws when the last native command exited non-zero.
-    [CmdletBinding()]
-    [OutputType([void])]
-    param([Parameter(Mandatory)][string]$Operation)
-
-    if ($LASTEXITCODE -ne 0) {
-        throw "$Operation failed with exit code $LASTEXITCODE."
-    }
-}
-
-function Get-LdoNsgPublicIpAddress {
-    # Internal. Returns the caller's public IPv4 address.
-    [CmdletBinding()]
-    [OutputType([string])]
-    param()
-
-    $ip = (Invoke-RestMethod -Uri 'https://checkip.amazonaws.com' -ErrorAction Stop).Trim()
-    if ([string]::IsNullOrWhiteSpace($ip)) {
-        throw 'Failed to determine the public IP address.'
-    }
-    return $ip
-}
-
 function Add-LdoNsgCurrentIpRule {
     <#
     .SYNOPSIS
@@ -86,13 +62,13 @@ function Add-LdoNsgCurrentIpRule {
         [string]$DestinationAddressPrefix = 'VirtualNetwork'
     )
 
-    $ip = Get-LdoNsgPublicIpAddress
+    $ip = Get-LdoPublicIpAddress
 
     $existing = az network nsg rule list --resource-group $ResourceGroup --nsg-name $NsgName --query "[?name=='$RuleName']" -o tsv
     if ($existing) {
         Write-LdoLog -Level INFO -Message "Rule $RuleName already exists on $NsgName; recreating it with the current IP."
         az network nsg rule delete --resource-group $ResourceGroup --nsg-name $NsgName --name $RuleName | Out-Null
-        Assert-LdoNsgExitCode -Operation "az network nsg rule delete ($RuleName)"
+        Assert-LdoLastExitCode -Operation "az network nsg rule delete ($RuleName)"
     }
 
     az network nsg rule create `
@@ -107,7 +83,7 @@ function Add-LdoNsgCurrentIpRule {
         --source-port-ranges $SourcePortRange `
         --destination-address-prefixes $DestinationAddressPrefix `
         --destination-port-ranges $DestinationPortRange | Out-Null
-    Assert-LdoNsgExitCode -Operation "az network nsg rule create ($RuleName)"
+    Assert-LdoLastExitCode -Operation "az network nsg rule create ($RuleName)"
 
     Write-LdoLog -Level INFO -Message "Rule $RuleName set for $ip on $NsgName."
 }
@@ -151,7 +127,7 @@ function Remove-LdoNsgRule {
     }
 
     az network nsg rule delete --resource-group $ResourceGroup --nsg-name $NsgName --name $RuleName | Out-Null
-    Assert-LdoNsgExitCode -Operation "az network nsg rule delete ($RuleName)"
+    Assert-LdoLastExitCode -Operation "az network nsg rule delete ($RuleName)"
     Write-LdoLog -Level INFO -Message "Removed rule $RuleName from $NsgName."
 }
 

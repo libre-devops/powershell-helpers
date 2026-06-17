@@ -1,16 +1,5 @@
 Set-StrictMode -Version Latest
 
-function Assert-LdoPackerExitCode {
-    # Internal. Throws when the last native command exited non-zero.
-    [CmdletBinding()]
-    [OutputType([void])]
-    param([Parameter(Mandatory)][string]$Operation)
-
-    if ($LASTEXITCODE -ne 0) {
-        throw "$Operation failed with exit code $LASTEXITCODE."
-    }
-}
-
 function Invoke-LdoPackerInit {
     <#
     .SYNOPSIS
@@ -38,7 +27,7 @@ function Invoke-LdoPackerInit {
 
     Write-LdoLog -Level INFO -Message "Initializing Packer template: $TemplatePath"
     & packer init $TemplatePath
-    Assert-LdoPackerExitCode -Operation 'packer init'
+    Assert-LdoLastExitCode -Operation 'packer init'
 }
 
 function Invoke-LdoPackerValidate {
@@ -68,7 +57,7 @@ function Invoke-LdoPackerValidate {
 
     Write-LdoLog -Level INFO -Message "Validating Packer template: $TemplatePath"
     & packer validate $TemplatePath
-    Assert-LdoPackerExitCode -Operation 'packer validate'
+    Assert-LdoLastExitCode -Operation 'packer validate'
 }
 
 function Invoke-LdoPackerBuild {
@@ -98,7 +87,7 @@ function Invoke-LdoPackerBuild {
 
     Write-LdoLog -Level INFO -Message "Building image with Packer template: $TemplatePath"
     & packer build $TemplatePath
-    Assert-LdoPackerExitCode -Operation 'packer build'
+    Assert-LdoLastExitCode -Operation 'packer build'
 }
 
 function Invoke-LdoPackerWorkflow {

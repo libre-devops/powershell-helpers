@@ -356,6 +356,67 @@ function Get-LdoOperatingSystem {
     return $os
 }
 
+function Assert-LdoLastExitCode {
+    <#
+    .SYNOPSIS
+        Throws when the last native command exited non-zero.
+
+    .DESCRIPTION
+        Checks $LASTEXITCODE and throws a descriptive error naming the operation when it is not
+        zero. Call immediately after invoking an external CLI so failures surface clearly.
+
+    .PARAMETER Operation
+        Description of the command that ran, used in the error message.
+
+    .EXAMPLE
+        az group create --name rg --location uksouth
+        Assert-LdoLastExitCode -Operation 'az group create'
+
+    .OUTPUTS
+        None
+    #>
+    [CmdletBinding()]
+    [OutputType([void])]
+    param(
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$Operation
+    )
+
+    if ($LASTEXITCODE -ne 0) {
+        throw "$Operation failed with exit code $LASTEXITCODE."
+    }
+}
+
+function Get-LdoPublicIpAddress {
+    <#
+    .SYNOPSIS
+        Returns the caller's public IPv4 address.
+
+    .DESCRIPTION
+        Queries a public IP echo service and returns the trimmed address. Throws when no address
+        can be determined.
+
+    .PARAMETER Uri
+        The IP echo endpoint. Defaults to https://checkip.amazonaws.com.
+
+    .EXAMPLE
+        $ip = Get-LdoPublicIpAddress
+
+    .OUTPUTS
+        System.String
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [ValidateNotNullOrEmpty()][string]$Uri = 'https://checkip.amazonaws.com'
+    )
+
+    $ip = (Invoke-RestMethod -Uri $Uri -ErrorAction Stop).Trim()
+    if ([string]::IsNullOrWhiteSpace($ip)) {
+        throw 'Failed to determine the public IP address.'
+    }
+    return $ip
+}
+
 Export-ModuleMember -Function `
     Test-LdoPath, `
     Assert-LdoCommand, `
@@ -364,4 +425,6 @@ Export-ModuleMember -Function `
     New-LdoPassword, `
     ConvertTo-LdoBoolean, `
     ConvertTo-LdoNull, `
-    Get-LdoOperatingSystem
+    Get-LdoOperatingSystem, `
+    Assert-LdoLastExitCode, `
+    Get-LdoPublicIpAddress

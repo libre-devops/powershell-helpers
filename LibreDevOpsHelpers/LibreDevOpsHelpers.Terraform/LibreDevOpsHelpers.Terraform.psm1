@@ -1,16 +1,5 @@
 Set-StrictMode -Version Latest
 
-function Assert-LdoTerraformExitCode {
-    # Internal. Throws when the last native command exited non-zero.
-    [CmdletBinding()]
-    [OutputType([void])]
-    param([Parameter(Mandatory)][string]$Operation)
-
-    if ($LASTEXITCODE -ne 0) {
-        throw "$Operation failed with exit code $LASTEXITCODE."
-    }
-}
-
 function Invoke-LdoTerraformValidate {
     <#
     .SYNOPSIS
@@ -44,7 +33,7 @@ function Invoke-LdoTerraformValidate {
         Set-Location $CodePath
         Write-LdoLog -Level INFO -Message "Validating Terraform: $CodePath"
         & terraform validate
-        Assert-LdoTerraformExitCode -Operation 'terraform validate'
+        Assert-LdoLastExitCode -Operation 'terraform validate'
     }
     finally {
         Set-Location $orig
@@ -84,7 +73,7 @@ function Invoke-LdoTerraformFmtCheck {
         Set-Location $CodePath
         Write-LdoLog -Level INFO -Message "Checking Terraform formatting: $CodePath"
         & terraform fmt -check -recursive
-        Assert-LdoTerraformExitCode -Operation 'terraform fmt -check'
+        Assert-LdoLastExitCode -Operation 'terraform fmt -check'
     }
     finally {
         Set-Location $orig
@@ -303,7 +292,7 @@ function Invoke-LdoTerraformInit {
 
         Write-LdoLog -Level INFO -Message "Running terraform init in: $CodePath"
         & terraform init @InitArgs
-        Assert-LdoTerraformExitCode -Operation 'terraform init'
+        Assert-LdoLastExitCode -Operation 'terraform init'
     }
     finally {
         Set-Location $orig
@@ -347,7 +336,7 @@ function Invoke-LdoTerraformWorkspaceSelect {
         Write-LdoLog -Level INFO -Message "Selecting workspace '$WorkspaceName' (auto-create) in $CodePath"
         Set-Location $CodePath
         & terraform workspace select -or-create=true $WorkspaceName
-        Assert-LdoTerraformExitCode -Operation 'terraform workspace select'
+        Assert-LdoLastExitCode -Operation 'terraform workspace select'
     }
     finally {
         Set-Location $orig
@@ -397,7 +386,7 @@ function Invoke-LdoTerraformPlan {
 
         $tfArgs = @('plan', '-input=false', '-out', $PlanFile) + $PlanArgs
         & terraform @tfArgs
-        Assert-LdoTerraformExitCode -Operation 'terraform plan'
+        Assert-LdoLastExitCode -Operation 'terraform plan'
     }
     finally {
         Set-Location $orig
@@ -447,7 +436,7 @@ function Invoke-LdoTerraformPlanDestroy {
 
         $tfArgs = @('plan', '-destroy', '-input=false', '-out', $PlanFile) + $PlanArgs
         & terraform @tfArgs
-        Assert-LdoTerraformExitCode -Operation 'terraform plan -destroy'
+        Assert-LdoLastExitCode -Operation 'terraform plan -destroy'
     }
     finally {
         Set-Location $orig
@@ -506,7 +495,7 @@ function Invoke-LdoTerraformApply {
         $cmd += @($PlanFile) + $ApplyArgs
 
         & terraform @cmd
-        Assert-LdoTerraformExitCode -Operation 'terraform apply'
+        Assert-LdoLastExitCode -Operation 'terraform apply'
     }
     finally {
         Set-Location $orig
@@ -566,7 +555,7 @@ function Invoke-LdoTerraformDestroy {
         $cmd += @($PlanFile) + $DestroyArgs
 
         & terraform @cmd
-        Assert-LdoTerraformExitCode -Operation 'terraform apply (destroy)'
+        Assert-LdoLastExitCode -Operation 'terraform apply (destroy)'
     }
     finally {
         Set-Location $orig
@@ -628,7 +617,7 @@ function Convert-LdoTerraformPlanToJson {
 
         $jsonPath = Join-Path $CodePath $JsonFile
         terraform show -json $PlanFile | Out-File -FilePath $jsonPath -Encoding utf8
-        Assert-LdoTerraformExitCode -Operation 'terraform show -json'
+        Assert-LdoLastExitCode -Operation 'terraform show -json'
 
         if (-not (Test-Path $jsonPath)) {
             throw 'JSON output not created.'

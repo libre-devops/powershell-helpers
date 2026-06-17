@@ -1,19 +1,5 @@
 Set-StrictMode -Version Latest
 
-function Assert-LdoLastExitCode {
-    # Internal. Throws when the most recent native command exited non-zero.
-    [CmdletBinding()]
-    [OutputType([void])]
-    param([Parameter(Mandatory)][string]$Operation)
-
-    Write-LdoLog -Level DEBUG -Message "$Operation exit code: $LASTEXITCODE"
-    if ($LASTEXITCODE -ne 0) {
-        $message = "$Operation failed with exit code $LASTEXITCODE."
-        Write-LdoLog -Level ERROR -Message $message
-        throw $message
-    }
-}
-
 function Install-LdoAzureCli {
     <#
     .SYNOPSIS

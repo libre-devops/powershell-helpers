@@ -108,27 +108,4 @@ function Write-LdoLog {
     }
 }
 
-# Transition shim. Modules not yet migrated still call _LogMessage; it forwards to
-# Write-LdoLog so the repo keeps working during the module-by-module upgrade. Removed
-# once every module has been migrated.
-function _LogMessage {
-    [CmdletBinding()]
-    param(
-        [string]$Level,
-        [string]$Message,
-        [string]$InvocationName
-    )
-
-    $mapped = switch ($Level.ToUpper()) {
-        'DEBUG' { 'DEBUG' }
-        'INFO' { 'INFO' }
-        'WARN' { 'WARN' }
-        'ERROR' { 'ERROR' }
-        default { 'INFO' }
-    }
-
-    if (-not $InvocationName) { $InvocationName = (Get-PSCallStack)[1].Command }
-    Write-LdoLog -Level $mapped -Message $Message -InvocationName $InvocationName
-}
-
-Export-ModuleMember -Function Write-LdoLog, Set-LdoLogLevel, _LogMessage
+Export-ModuleMember -Function Write-LdoLog, Set-LdoLogLevel

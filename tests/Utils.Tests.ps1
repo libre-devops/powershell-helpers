@@ -90,3 +90,30 @@ Describe 'Get-LdoOperatingSystem' {
         Get-LdoOperatingSystem | Should -BeIn @('Linux', 'Windows', 'macOS')
     }
 }
+
+Describe 'Assert-LdoLastExitCode' {
+    It 'does not throw when the exit code is zero' {
+        $global:LASTEXITCODE = 0
+        { Assert-LdoLastExitCode -Operation 'noop' } | Should -Not -Throw
+    }
+    It 'throws when the exit code is non-zero' {
+        $global:LASTEXITCODE = 1
+        { Assert-LdoLastExitCode -Operation 'failing op' } | Should -Throw
+        $global:LASTEXITCODE = 0
+    }
+}
+
+Describe 'Get-LdoPublicIpAddress' {
+    It 'returns the trimmed public IP' {
+        InModuleScope LibreDevOpsHelpers.Utils {
+            Mock Invoke-RestMethod { "203.0.113.7`n" }
+            Get-LdoPublicIpAddress | Should -Be '203.0.113.7'
+        }
+    }
+    It 'throws when no IP is returned' {
+        InModuleScope LibreDevOpsHelpers.Utils {
+            Mock Invoke-RestMethod { '   ' }
+            { Get-LdoPublicIpAddress } | Should -Throw
+        }
+    }
+}

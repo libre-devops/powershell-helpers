@@ -11,18 +11,8 @@ Describe 'AzureKeyVault module surface' {
     }
 }
 
-Describe 'Get-LdoPublicIpAddress' {
-    It 'returns the trimmed public IP' {
-        InModuleScope LibreDevOpsHelpers.AzureKeyVault {
-            Mock Invoke-RestMethod { "203.0.113.7`n" }
-            Get-LdoPublicIpAddress | Should -Be '203.0.113.7'
-        }
-    }
-
-    It 'throws when no IP is returned' {
-        InModuleScope LibreDevOpsHelpers.AzureKeyVault {
-            Mock Invoke-RestMethod { '   ' }
-            { Get-LdoPublicIpAddress } | Should -Throw
-        }
+Describe 'AzureKeyVault parameter validation' {
+    It 'requires a key vault name' {
+        { Add-LdoKeyVaultCurrentIpRule -ResourceGroup rg -KeyVaultName '' } | Should -Throw
     }
 }

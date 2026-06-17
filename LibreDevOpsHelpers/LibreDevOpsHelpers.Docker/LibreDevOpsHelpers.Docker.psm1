@@ -1,16 +1,5 @@
 Set-StrictMode -Version Latest
 
-function Assert-LdoDockerExitCode {
-    # Internal. Throws when the last native command exited non-zero.
-    [CmdletBinding()]
-    [OutputType([void])]
-    param([Parameter(Mandatory)][string]$Operation)
-
-    if ($LASTEXITCODE -ne 0) {
-        throw "$Operation failed with exit code $LASTEXITCODE."
-    }
-}
-
 function Assert-LdoDockerExists {
     <#
     .SYNOPSIS
@@ -76,7 +65,7 @@ function Build-LdoDockerImage {
     Write-LdoLog -Level INFO -Message "Build context: $fullContextPath"
 
     docker build -f $fullDockerfilePath -t $ImageName $fullContextPath | Out-Host
-    Assert-LdoDockerExitCode -Operation 'docker build'
+    Assert-LdoLastExitCode -Operation 'docker build'
     Write-LdoLog -Level SUCCESS -Message "Built '$ImageName'."
 }
 
@@ -120,13 +109,13 @@ function Push-LdoDockerImage {
 
     Write-LdoLog -Level INFO -Message "Logging in to $RegistryUrl"
     $plainPassword | docker login $RegistryUrl -u $RegistryUsername --password-stdin
-    Assert-LdoDockerExitCode -Operation 'docker login'
+    Assert-LdoLastExitCode -Operation 'docker login'
 
     try {
         foreach ($tag in $FullTagNames) {
             Write-LdoLog -Level INFO -Message "Pushing $tag"
             docker push $tag | Out-Host
-            Assert-LdoDockerExitCode -Operation "docker push ($tag)"
+            Assert-LdoLastExitCode -Operation "docker push ($tag)"
         }
         Write-LdoLog -Level SUCCESS -Message "Pushed $($FullTagNames.Count) tag(s)."
     }
