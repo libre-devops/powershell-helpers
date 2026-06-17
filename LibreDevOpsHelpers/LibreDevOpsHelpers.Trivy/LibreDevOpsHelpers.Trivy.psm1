@@ -3,7 +3,7 @@ function Invoke-InstallTrivy {
     param()
 
     $inv = $MyInvocation.MyCommand.Name
-    $os = Assert-WhichOs -PassThru
+    $os = Get-LdoOperatingSystem
 
     if ($os.ToLower() -eq 'windows') {
         _LogMessage -Level INFO -Message "Installing Trivy via Chocolatey on Windows…" -InvocationName $inv
@@ -25,7 +25,7 @@ function Invoke-InstallTrivy {
         throw "Unsupported OS: $os"
     }
 
-    Get-InstalledPrograms -Programs @('trivy')
+    Assert-LdoCommand -Name @('trivy')
 }
 
 function Invoke-Trivy {

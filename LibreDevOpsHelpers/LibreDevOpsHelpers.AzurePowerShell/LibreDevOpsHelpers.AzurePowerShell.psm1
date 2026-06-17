@@ -96,7 +96,7 @@ function Connect-AzurePowerShell {
     }
 
     if ($UseClientSecret) {
-        Test-EnvironmentVariablesExist -EnvVars @('ARM_CLIENT_ID', 'ARM_CLIENT_SECRET', 'ARM_TENANT_ID', 'ARM_SUBSCRIPTION_ID')
+        Assert-LdoEnvironmentVariable -Name @('ARM_CLIENT_ID', 'ARM_CLIENT_SECRET', 'ARM_TENANT_ID', 'ARM_SUBSCRIPTION_ID')
         Connect-ToAzurePowerShellClientSecret `
             -ClientId       $env:ARM_CLIENT_ID `
             -ClientSecret   $env:ARM_CLIENT_SECRET `
@@ -109,7 +109,7 @@ function Connect-AzurePowerShell {
             -SubscriptionId $env:ARM_SUBSCRIPTION_ID
     }
     else {
-        Test-EnvironmentVariablesExist -EnvVars @('ARM_SUBSCRIPTION_ID')
+        Assert-LdoEnvironmentVariable -Name @('ARM_SUBSCRIPTION_ID')
         Connect-ToAzurePowerShellManagedIdentity `
             -SubscriptionId         $env:ARM_SUBSCRIPTION_ID `
             -ManagedIdentityObjectId $env:MANAGED_IDENTITY_OBJECT_ID

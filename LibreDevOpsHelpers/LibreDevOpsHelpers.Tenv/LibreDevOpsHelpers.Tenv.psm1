@@ -3,7 +3,7 @@ function Invoke-InstallTenv {
     param()
 
     $inv = $MyInvocation.MyCommand.Name
-    $os = Assert-WhichOs -PassThru
+    $os = Get-LdoOperatingSystem
 
     if (-not (Get-Command tenv -ErrorAction SilentlyContinue)) {
         if ($os -eq 'windows') {

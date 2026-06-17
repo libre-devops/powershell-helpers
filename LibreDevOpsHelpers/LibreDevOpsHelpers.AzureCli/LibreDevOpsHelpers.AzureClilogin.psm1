@@ -3,7 +3,7 @@ function Invoke-InstallAzureCli
     [CmdletBinding()]
     param()
     $inv = $MyInvocation.MyCommand.Name
-    $os = Assert-WhichOs -PassThru
+    $os = Get-LdoOperatingSystem
 
     if ($os.ToLower() -eq 'windows')
     {
@@ -18,7 +18,7 @@ function Invoke-InstallAzureCli
         brew install azure-cli
     }
 
-    Get-InstalledPrograms -Programs @('az')
+    Assert-LdoCommand -Name @('az')
 }
 
 function Connect-ToAzureCliClientSecret
@@ -207,7 +207,7 @@ function Connect-AzureCli
     if ($UseClientSecret)
     {
 
-        Test-EnvironmentVariablesExist -EnvVars @(
+        Assert-LdoEnvironmentVariable -Name @(
             'ARM_CLIENT_ID', 'ARM_CLIENT_SECRET', 'ARM_TENANT_ID', 'ARM_SUBSCRIPTION_ID'
         )
 
@@ -220,7 +220,7 @@ function Connect-AzureCli
     elseif ($UseOidc)
     {
 
-        Test-EnvironmentVariablesExist -EnvVars @(
+        Assert-LdoEnvironmentVariable -Name @(
             'ARM_CLIENT_ID', 'ARM_TENANT_ID', 'ARM_SUBSCRIPTION_ID', 'ARM_OIDC_TOKEN'
         )
 
@@ -246,7 +246,7 @@ function Connect-AzureCli
     {
         # Managed Identity
 
-        Test-EnvironmentVariablesExist -EnvVars @('ARM_SUBSCRIPTION_ID')
+        Assert-LdoEnvironmentVariable -Name @('ARM_SUBSCRIPTION_ID')
 
         Connect-ToAzureCliManagedIdentity `
             -SubscriptionId         $env:ARM_SUBSCRIPTION_ID `

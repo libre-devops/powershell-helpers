@@ -4,7 +4,7 @@ function Invoke-InstallCheckov
     param()
 
     $inv = $MyInvocation.MyCommand.Name
-    $os = Assert-WhichOs -PassThru
+    $os = Get-LdoOperatingSystem
 
     if ($os.toLower() -eq 'windows')
     {
@@ -43,7 +43,7 @@ function Invoke-InstallCheckov
     }
 
     # verify
-    Get-InstalledPrograms -Programs @('checkov')
+    Assert-LdoCommand -Name @('checkov')
 }
 
 function Invoke-Checkov
