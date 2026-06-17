@@ -36,6 +36,15 @@ if (-not (Get-PSResourceRepository -Name 'PSGallery' -ErrorAction SilentlyContin
     Register-PSResourceRepository -Name 'PSGallery' -Uri 'https://www.powershellgallery.com/api/v2' -Trusted
 }
 
+# Idempotency: PSGallery returns 409 if the version already exists. Skip cleanly so a
+# re-run (for example a push that touches a psd1 without a version bump) does not fail.
+$version = (Test-ModuleManifest -Path $psd1Path).Version.ToString()
+$existing = Find-PSResource -Name $moduleName -Version "[$version]" -Repository PSGallery -ErrorAction SilentlyContinue
+if ($existing) {
+    Write-Host "$moduleName $version is already published to PSGallery; nothing to do."
+    return
+}
+
 Write-Host 'Publishing to PowerShell Gallery...'
 
 $publishSplat = @{
