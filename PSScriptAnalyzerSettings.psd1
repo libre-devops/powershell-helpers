@@ -1,6 +1,7 @@
 @{
-    # Run the full default rule set, plus code-formatting rules.
-    IncludeDefaultRules = $true
+    # The default rule set runs automatically. IncludeDefaultRules is intentionally not set:
+    # enabling it without a CustomRulePath triggers a NullReferenceException in some
+    # PSScriptAnalyzer versions. The formatting rules below are configured explicitly.
 
     # Rules that do not fit this repo:
     #  - PSAvoidUsingWriteHost: the logger intentionally uses Write-Host for the
