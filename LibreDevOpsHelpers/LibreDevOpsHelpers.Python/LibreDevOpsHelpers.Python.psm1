@@ -1,137 +1,190 @@
-# Create a .venv virtual environment in the current directory
-function New-Venv
-{
+Set-StrictMode -Version Latest
+
+function Get-LdoPythonCommand {
+    # Internal. Returns the name of the available Python executable, preferring python3.
     [CmdletBinding()]
-    param(
-        [string]$VenvName = ".venv",
-        [string]$VenvPath = $( Get-Location ).Path
-    )
+    [OutputType([string])]
+    param()
 
-    $inv = $MyInvocation.MyCommand.Name
-
-    # Determine correct Python executable
-    if (Get-Command python3 -ErrorAction SilentlyContinue)
-    {
-        $pythonCmd = "python3"
+    if (Get-Command python3 -ErrorAction SilentlyContinue) {
+        return 'python3'
     }
-    elseif (Get-Command python -ErrorAction SilentlyContinue)
-    {
-        $pythonCmd = "python"
+    if (Get-Command python -ErrorAction SilentlyContinue) {
+        return 'python'
     }
-    else
-    {
-        _LogMessage -Level ERROR -Message "Python not found" -InvocationName $inv
-        return
-    }
-
-    # Get Python version
-    $pythonVersion = & $pythonCmd --version
-    _LogMessage -Level INFO -Message "Python version: $pythonVersion" -InvocationName $inv
-
-    $VirtualEnvPath = Join-Path $VenvPath $VenvName
-
-    if (Test-Path $VirtualEnvPath)
-    {
-        _LogMessage -Level WARN -Message "Virtual environment $VirtualEnvPath already exists." -InvocationName $inv
-        return
-    }
-
-    _LogMessage -Level INFO -Message "Running: $pythonCmd -m venv $VirtualEnvPath" -InvocationName $inv
-    & $pythonCmd -m venv $VirtualEnvPath
-    _LogMessage -Level INFO -Message "Virtual environment '$VenvName' created at '$VirtualEnvPath'" -InvocationName $inv
+    throw 'Python not found on PATH.'
 }
 
-function Initialize-Venv
-{
+function New-LdoVenv {
+    <#
+    .SYNOPSIS
+        Creates a Python virtual environment.
+
+    .DESCRIPTION
+        Creates a venv at <VenvPath>/<VenvName> using the available Python executable. Does
+        nothing when the environment already exists.
+
+    .PARAMETER VenvName
+        Name of the virtual environment folder. Defaults to .venv.
+
+    .PARAMETER VenvPath
+        Parent folder for the environment. Defaults to the current directory.
+
+    .EXAMPLE
+        New-LdoVenv
+
+    .OUTPUTS
+        None
+    #>
     [CmdletBinding()]
+    [OutputType([void])]
+    param(
+        [string]$VenvName = '.venv',
+        [string]$VenvPath = (Get-Location).Path
+    )
+
+    $pythonCmd = Get-LdoPythonCommand
+    $pythonVersion = & $pythonCmd --version
+    Write-LdoLog -Level INFO -Message "Python version: $pythonVersion"
+
+    $virtualEnvPath = Join-Path $VenvPath $VenvName
+    if (Test-Path $virtualEnvPath) {
+        Write-LdoLog -Level WARN -Message "Virtual environment $virtualEnvPath already exists."
+        return
+    }
+
+    Write-LdoLog -Level INFO -Message "Running: $pythonCmd -m venv $virtualEnvPath"
+    & $pythonCmd -m venv $virtualEnvPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to create virtual environment (exit $LASTEXITCODE)."
+    }
+    Write-LdoLog -Level SUCCESS -Message "Virtual environment '$VenvName' created at '$virtualEnvPath'."
+}
+
+function Initialize-LdoVenv {
+    <#
+    .SYNOPSIS
+        Activates an existing Python virtual environment in the current session.
+
+    .DESCRIPTION
+        Activates the venv at <VenvPath>/<VenvName>. On Windows the Activate.ps1 script is
+        dot-sourced; on other platforms VIRTUAL_ENV and PATH are set directly. Throws when the
+        environment is missing, or when -VerifyVenv is set and the active interpreter does not
+        resolve to the expected location.
+
+    .PARAMETER VenvName
+        Name of the virtual environment folder. Defaults to .venv.
+
+    .PARAMETER VenvPath
+        Parent folder for the environment. Defaults to the current directory.
+
+    .PARAMETER VerifyVenv
+        When set, verifies the active interpreter resolves to the environment.
+
+    .EXAMPLE
+        Initialize-LdoVenv -VerifyVenv
+
+    .OUTPUTS
+        None
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessage('PSAvoidGlobalFunctions', '', Justification = 'Venv activation must override the global prompt function.')]
+    [CmdletBinding()]
+    [OutputType([void])]
     param(
         [string]$VenvName = '.venv',
         [string]$VenvPath = (Get-Location).Path,
         [switch]$VerifyVenv
     )
 
-    $VirtualEnvPath = Join-Path $VenvPath $VenvName
-    if (-not (Test-Path $VirtualEnvPath))
-    {
-        throw "No virtual environment at '$VirtualEnvPath'"
+    $virtualEnvPath = Join-Path $VenvPath $VenvName
+    if (-not (Test-Path $virtualEnvPath)) {
+        throw "No virtual environment at '$virtualEnvPath'"
     }
 
-    if ($IsWindows)
-    {
-        . (Join-Path $VirtualEnvPath 'Scripts\Activate.ps1')
+    if ($IsWindows) {
+        . (Join-Path $virtualEnvPath 'Scripts\Activate.ps1')
     }
-    else
-    {
-        $env:VIRTUAL_ENV = $VirtualEnvPath
-        $env:PATH = "$VirtualEnvPath/bin:$env:PATH"
+    else {
+        $env:VIRTUAL_ENV = $virtualEnvPath
+        $env:PATH = "$virtualEnvPath/bin:$env:PATH"
 
-        if (-not (Test-Path function:\__origPrompt))
-        {
+        if (-not (Test-Path function:\__origPrompt)) {
             Set-Item function:\__origPrompt (Get-Command prompt)
         }
-        function global:prompt
-        {
-            "($( Split-Path $env:VIRTUAL_ENV -Leaf )) " + (& __origPrompt)
+        function global:prompt {
+            "($(Split-Path $env:VIRTUAL_ENV -Leaf)) " + (& __origPrompt)
         }
     }
 
-    if ($VerifyVenv)
-    {
-        $venvPython = if ($IsWindows)
-        {
-            Join-Path $VirtualEnvPath 'Scripts/python.exe'
+    if ($VerifyVenv) {
+        $venvPython = if ($IsWindows) {
+            Join-Path $virtualEnvPath 'Scripts/python.exe'
         }
-        else
-        {
-            Join-Path $VirtualEnvPath 'bin/python'
+        else {
+            Join-Path $virtualEnvPath 'bin/python'
         }
         $prefix = & $venvPython -c 'import sys, pathlib; print(pathlib.Path(sys.prefix).resolve())'
-        if ($prefix -ne (Get-Item $VirtualEnvPath).FullName)
-        {
-            throw "Venv verification failed – expected $VirtualEnvPath, got $prefix"
+        if ($prefix -ne (Get-Item $virtualEnvPath).FullName) {
+            throw "Venv verification failed; expected $virtualEnvPath, got $prefix"
         }
     }
+
+    Write-LdoLog -Level INFO -Message "Virtual environment '$VenvName' activated."
 }
 
-function Use-Venv {
+function Use-LdoVenv {
+    <#
+    .SYNOPSIS
+        Creates a Python virtual environment if needed and activates it.
+
+    .DESCRIPTION
+        Creates the venv at <VenvPath>/<VenvName> when it does not exist, then activates it for
+        the current session.
+
+    .PARAMETER VenvPath
+        Parent folder for the environment. Defaults to the current directory.
+
+    .PARAMETER VenvName
+        Name of the virtual environment folder. Defaults to .venv.
+
+    .EXAMPLE
+        Use-LdoVenv
+
+    .OUTPUTS
+        None
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessage('PSAvoidGlobalFunctions', '', Justification = 'Venv activation must override the global prompt function.')]
     [CmdletBinding()]
+    [OutputType([void])]
     param(
-        [string] $VenvPath = (Get-Location).Path,
-        [string] $VenvName = '.venv'
+        [string]$VenvPath = (Get-Location).Path,
+        [string]$VenvName = '.venv'
     )
 
-    $inv = $MyInvocation.MyCommand.Name
     $venvRoot = Join-Path $VenvPath $VenvName
 
-    # region ─── CREATE IF NEEDED ──────────────────────────────────────────────
     if (-not (Test-Path $venvRoot)) {
-        _LogMessage -Level INFO -Message "Creating venv with: python -m venv $venvRoot" -InvocationName $inv
-        try {
-            python -m venv $venvRoot
-        } catch {
-            _LogMessage -Level ERROR -Message "Failed to create venv: $_" -InvocationName $inv
-            throw
+        $pythonCmd = Get-LdoPythonCommand
+        Write-LdoLog -Level INFO -Message "Creating venv with: $pythonCmd -m venv $venvRoot"
+        & $pythonCmd -m venv $venvRoot
+        if ($LASTEXITCODE -ne 0) {
+            throw "Failed to create virtual environment (exit $LASTEXITCODE)."
         }
     }
-    # endregion
 
-    # region ─── ACTIVATE ──────────────────────────────────────────────────────
     if ($IsWindows) {
         $activateScript = Join-Path $venvRoot 'Scripts\Activate.ps1'
         if (-not (Test-Path $activateScript)) {
-            _LogMessage -Level ERROR -Message "Cannot find $activateScript" -InvocationName $inv
-            throw
+            throw "Cannot find $activateScript"
         }
-        _LogMessage -Level INFO -Message "Dot-sourcing $activateScript" -InvocationName $inv
+        Write-LdoLog -Level INFO -Message "Dot-sourcing $activateScript"
         . $activateScript
     }
     else {
-        # Two env-vars = “activated” for PowerShell on Linux/macOS/WSL
-        _LogMessage -Level INFO -Message "Setting PATH/VIRTUAL_ENV for POSIX PowerShell" -InvocationName $inv
+        Write-LdoLog -Level INFO -Message 'Setting PATH/VIRTUAL_ENV for POSIX PowerShell.'
         $env:VIRTUAL_ENV = (Resolve-Path $venvRoot)
-        $env:PATH        = "$env:VIRTUAL_ENV/bin$([IO.Path]::PathSeparator)$env:PATH"
+        $env:PATH = "$env:VIRTUAL_ENV/bin$([IO.Path]::PathSeparator)$env:PATH"
 
-        # Optional cosmetic prompt
         if (-not (Get-Command __origPrompt -ErrorAction SilentlyContinue)) {
             $orig = Get-Command prompt -ErrorAction SilentlyContinue
             if ($orig) { Set-Item function:\__origPrompt $orig }
@@ -141,240 +194,265 @@ function Use-Venv {
         }
     }
 
-    _LogMessage -Level INFO -Message "Venv '$VenvName' is active." -InvocationName $inv
+    Write-LdoLog -Level INFO -Message "Virtual environment '$VenvName' is active."
 }
 
+function Clear-LdoVenv {
+    <#
+    .SYNOPSIS
+        Deactivates the currently active Python virtual environment.
 
+    .DESCRIPTION
+        Calls the venv deactivate function when one is active, otherwise logs a warning.
 
-# Deactivate the current virtual environment
-function Clear-Venv
-{
+    .PARAMETER VenvName
+        Name used only for logging. Defaults to .venv.
+
+    .EXAMPLE
+        Clear-LdoVenv
+
+    .OUTPUTS
+        None
+    #>
     [CmdletBinding()]
+    [OutputType([void])]
     param(
-        [string]$VenvName = ".venv"
+        [string]$VenvName = '.venv'
     )
 
-    $inv = $MyInvocation.MyCommand.Name
-
-    if (Get-Command -Name deactivate -CommandType Function -ErrorAction SilentlyContinue)
-    {
-        _LogMessage -Level INFO -Message "Running: deactivate" -InvocationName $inv
+    if (Get-Command -Name deactivate -CommandType Function -ErrorAction SilentlyContinue) {
+        Write-LdoLog -Level INFO -Message 'Running: deactivate'
         deactivate
-        _LogMessage -Level INFO -Message "Virtual environment '$VenvName' deactivated." -InvocationName $inv
+        Write-LdoLog -Level INFO -Message "Virtual environment '$VenvName' deactivated."
     }
-    else
-    {
-        _LogMessage -Level ERROR -Message "No virtual environment is currently active." -InvocationName $inv
+    else {
+        Write-LdoLog -Level WARN -Message 'No virtual environment is currently active.'
     }
 }
 
-# Fully remove a virtual environment
-function Remove-Venv
-{
+function Remove-LdoVenv {
+    <#
+    .SYNOPSIS
+        Removes a Python virtual environment.
+
+    .DESCRIPTION
+        Deletes the venv folder at <VenvPath>/<VenvName> when present, otherwise logs a warning.
+
+    .PARAMETER VenvName
+        Name of the virtual environment folder. Defaults to .venv.
+
+    .PARAMETER VenvPath
+        Parent folder for the environment. Defaults to the current directory.
+
+    .EXAMPLE
+        Remove-LdoVenv
+
+    .OUTPUTS
+        None
+    #>
     [CmdletBinding()]
+    [OutputType([void])]
     param(
-        [string]$VenvName = ".venv",
-        [string]$VenvPath = $( Get-Location ).Path
+        [string]$VenvName = '.venv',
+        [string]$VenvPath = (Get-Location).Path
     )
 
-    $inv = $MyInvocation.MyCommand.Name
-    $VirtualEnvPath = Join-Path $VenvPath $VenvName
+    $virtualEnvPath = Join-Path $VenvPath $VenvName
+    if (-not (Test-Path $virtualEnvPath)) {
+        Write-LdoLog -Level WARN -Message "Virtual environment '$VenvName' not found at '$virtualEnvPath'."
+        return
+    }
 
-    if (Test-Path $VirtualEnvPath)
-    {
-        try
-        {
-            _LogMessage -Level INFO -Message "Running: Remove-Item -Path $VirtualEnvPath -Recurse -Force" -InvocationName $inv
-            Remove-Item -Path $VirtualEnvPath -Recurse -Force
-            _LogMessage -Level INFO -Message "Virtual environment '$VenvName' fully removed from '$VirtualEnvPath'" -InvocationName $inv
-        }
-        catch
-        {
-            _LogMessage -Level ERROR -Message "Failed to remove virtual environment '$VenvName' at '$VirtualEnvPath'" -InvocationName $inv
-        }
-    }
-    else
-    {
-        _LogMessage -Level ERROR -Message "Virtual environment '$VenvName' not found at '$VirtualEnvPath'" -InvocationName $inv
-    }
+    Write-LdoLog -Level INFO -Message "Removing $virtualEnvPath"
+    Remove-Item -Path $virtualEnvPath -Recurse -Force
+    Write-LdoLog -Level SUCCESS -Message "Virtual environment '$VenvName' removed from '$virtualEnvPath'."
 }
 
-function Invoke-PythonInstallRequirements
-{
+function Invoke-LdoPythonInstallRequirements {
+    <#
+    .SYNOPSIS
+        Installs Python requirements into a project-local package directory.
+
+    .DESCRIPTION
+        Runs pip install -r against the requirements file, targeting
+        <ProjectPath>/.python_packages/lib/site-packages (the layout used by Azure Functions
+        Python apps). Throws on failure.
+
+    .PARAMETER ProjectPath
+        Project folder containing the requirements file. Defaults to the current directory.
+
+    .PARAMETER RequirementsFile
+        Requirements file name. Defaults to requirements.txt.
+
+    .PARAMETER Upgrade
+        When set, passes --upgrade to pip.
+
+    .EXAMPLE
+        Invoke-LdoPythonInstallRequirements -ProjectPath ./app
+
+    .OUTPUTS
+        None
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessage('PSUseSingularNouns', '', Justification = 'Installs multiple requirements.')]
     [CmdletBinding()]
+    [OutputType([void])]
     param(
         [ValidateScript({ Test-Path $_ -PathType Container })]
-        [string]$ProjectPath = $( Get-Location ).Path,
+        [string]$ProjectPath = (Get-Location).Path,
         [string]$RequirementsFile = 'requirements.txt',
         [switch]$Upgrade
     )
 
-    $inv = $MyInvocation.MyCommand.Name
+    $pythonCmd = Get-LdoPythonCommand
 
-    # Determine correct Python executable
-    if (Get-Command python3 -ErrorAction SilentlyContinue)
-    {
-        $pythonCmd = "python3"
+    $reqPath = Join-Path $ProjectPath $RequirementsFile
+    if (-not (Test-Path $reqPath)) {
+        throw "Requirements file not found: $reqPath"
     }
-    elseif (Get-Command python -ErrorAction SilentlyContinue)
-    {
-        $pythonCmd = "python"
+
+    $pyArgs = @('-m', 'pip', 'install', '-r', "$reqPath", '--target', "$ProjectPath/.python_packages/lib/site-packages")
+    if ($Upgrade) {
+        $pyArgs += '--upgrade'
     }
-    else
-    {
-        Write-Host "Error: Python not found"
+
+    Write-LdoLog -Level INFO -Message "$pythonCmd $($pyArgs -join ' ')"
+    & $pythonCmd @pyArgs
+    if ($LASTEXITCODE -ne 0) {
+        throw "pip install failed (exit $LASTEXITCODE)."
+    }
+
+    Write-LdoLog -Level SUCCESS -Message 'Dependencies installed.'
+}
+
+function Remove-LdoPythonPackages {
+    <#
+    .SYNOPSIS
+        Removes the project-local .python_packages directory.
+
+    .DESCRIPTION
+        Deletes <ProjectPath>/.python_packages when present, otherwise logs a warning.
+
+    .PARAMETER ProjectPath
+        Project folder. Defaults to the current directory.
+
+    .EXAMPLE
+        Remove-LdoPythonPackages -ProjectPath ./app
+
+    .OUTPUTS
+        None
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessage('PSUseSingularNouns', '', Justification = 'Removes multiple packages.')]
+    [CmdletBinding()]
+    [OutputType([void])]
+    param(
+        [string]$ProjectPath = (Get-Location).Path
+    )
+
+    $packagesPath = Join-Path $ProjectPath '.python_packages'
+    if (-not (Test-Path $packagesPath)) {
+        Write-LdoLog -Level WARN -Message "Python packages directory not found: $packagesPath"
         return
     }
 
-    try
-    {
-        $reqPath = Join-Path $ProjectPath $RequirementsFile
-        if (-not (Test-Path $reqPath))
-        {
-            throw "Requirements file not found: $reqPath"
-        }
-
-        $pyArgs = @('-m', 'pip', 'install', '-r', "$reqPath", '--target', "$ProjectPath/.python_packages/lib/site-packages")
-        if ($Upgrade)
-        {
-            $pyArgs += '--upgrade'
-        }
-
-        _LogMessage -Level INFO -Message "$pythonCmd $( $pyArgs -join ' ' )" -InvocationName $inv
-        & $pythonCmd @pyArgs
-        if ($LASTEXITCODE)
-        {
-            throw "pip install failed (exit $LASTEXITCODE)."
-        }
-
-        _LogMessage -Level INFO -Message 'Dependencies installed OK.' -InvocationName $inv
-    }
-    catch
-    {
-        _LogMessage -Level ERROR -Message $_.Exception.Message -InvocationName $inv
-        throw
-    }
+    Remove-Item -Path $packagesPath -Recurse -Force
+    Write-LdoLog -Level SUCCESS -Message 'Python packages directory removed.'
 }
 
-function Remove-PythonPackages
-{
+function Invoke-LdoPytestRun {
+    <#
+    .SYNOPSIS
+        Runs pytest, optionally emitting JUnit XML and coverage reports.
+
+    .DESCRIPTION
+        Runs pytest in a project folder. JUnit XML, coverage XML, and coverage HTML outputs are
+        produced unless their parameters are set to an empty string. Extra CLI arguments can be
+        supplied as a JSON array. Throws on test failure. The original working directory is always
+        restored.
+
+    .PARAMETER ProjectPath
+        Project folder to run pytest in.
+
+    .PARAMETER PythonExe
+        Python executable to use. Defaults to python.
+
+    .PARAMETER JUnitXmlPath
+        JUnit XML output path. Set to '' to skip. Defaults to pytest-results.xml.
+
+    .PARAMETER CoverageXmlPath
+        Coverage XML output path. Set to '' to skip. Defaults to coverage.xml.
+
+    .PARAMETER CoverageHtmlDir
+        Coverage HTML output directory. Set to '' to skip. Defaults to htmlcov.
+
+    .PARAMETER CliExtraArgsJson
+        Additional pytest arguments as a JSON array string.
+
+    .EXAMPLE
+        Invoke-LdoPytestRun -ProjectPath ./app
+
+    .OUTPUTS
+        None
+    #>
     [CmdletBinding()]
-    param(
-        [string]$ProjectPath = $( Get-Location ).Path
-    )
-
-    $packagesPath = Join-Path $ProjectPath ".python_packages"
-
-    if (Test-Path $packagesPath)
-    {
-        try
-        {
-            Remove-Item -Path $packagesPath -Recurse -Force
-            Write-Host "Python packages directory removed successfully."
-        }
-        catch
-        {
-            Write-Host "Error: Failed to remove the Python packages directory."
-        }
-    }
-    else
-    {
-        Write-Host "Error: Python packages directory not found."
-    }
-}
-
-
-
-#############################################################################
-# Run pytest and optionally emit JUnit XML & coverage reports
-#############################################################################
-function Invoke-PytestRun
-{
-    [CmdletBinding()]
+    [OutputType([void])]
     param(
         [Parameter(Mandatory)]
         [ValidateScript({ Test-Path $_ -PathType Container })]
         [string]$ProjectPath,
-
         [string]$PythonExe = 'python',
-        [string]$JUnitXmlPath = 'pytest-results.xml', # set '' to skip
-        [string]$CoverageXmlPath = 'coverage.xml', # set '' to skip
-        [string]$CoverageHtmlDir = 'htmlcov', # set '' to skip
-        [string]$CliExtraArgsJson                         # JSON array
+        [string]$JUnitXmlPath = 'pytest-results.xml',
+        [string]$CoverageXmlPath = 'coverage.xml',
+        [string]$CoverageHtmlDir = 'htmlcov',
+        [string]$CliExtraArgsJson
     )
 
-    $inv = $MyInvocation.MyCommand.Name
     $orig = Get-Location
-    try
-    {
+    try {
         Set-Location $ProjectPath
 
-        # ── Convert extra-args JSON ⇢ array ────────────────────────────────
         $extra = @()
-        if ($CliExtraArgsJson)
-        {
-            try
-            {
+        if ($CliExtraArgsJson) {
+            try {
                 $extra = [string[]]($CliExtraArgsJson | ConvertFrom-Json)
             }
-            catch
-            {
-                throw "CliExtraArgsJson is not valid JSON array: $( $_.Exception.Message )"
+            catch {
+                throw "CliExtraArgsJson is not a valid JSON array: $($_.Exception.Message)"
             }
         }
 
-        # ── Assemble pytest command list ───────────────────────────────────
         $cmd = @('-m', 'pytest')
-
-        if ($JUnitXmlPath)
-        {
+        if ($JUnitXmlPath) {
             $cmd += "--junitxml=$JUnitXmlPath"
         }
-        if ($CoverageXmlPath)
-        {
-            $cmd += @('--cov', '.', "--cov-report", "xml:$CoverageXmlPath")
-            if ($CoverageHtmlDir)
-            {
-                $cmd += "--cov-report", "html:$CoverageHtmlDir"
+        if ($CoverageXmlPath) {
+            $cmd += @('--cov', '.', '--cov-report', "xml:$CoverageXmlPath")
+            if ($CoverageHtmlDir) {
+                $cmd += '--cov-report', "html:$CoverageHtmlDir"
             }
         }
-        if ($extra)
-        {
+        if ($extra) {
             $cmd += $extra
         }
 
-        _LogMessage -Level INFO -Message "$PythonExe $( $cmd -join ' ' )" -InvocationName $inv
+        Write-LdoLog -Level INFO -Message "$PythonExe $($cmd -join ' ')"
         & $PythonExe @cmd
-        $code = $LASTEXITCODE
-        _LogMessage -Level DEBUG -Message "pytest exit-code: $code" -InvocationName $inv
-
-        if ($code)
-        {
-            throw "pytest failed (exit $code)."
+        if ($LASTEXITCODE -ne 0) {
+            throw "pytest failed (exit $LASTEXITCODE)."
         }
 
-        _LogMessage -Level INFO -Message 'pytest completed successfully.' -InvocationName $inv
+        Write-LdoLog -Level SUCCESS -Message 'pytest completed successfully.'
     }
-    catch
-    {
-        _LogMessage -Level ERROR -Message $_.Exception.Message -InvocationName $inv
-        throw
-    }
-    finally
-    {
+    finally {
         Set-Location $orig
     }
 }
 
-#############################################################################
-# Export public symbols
-#############################################################################
 Export-ModuleMember -Function `
-    New-Venv, `
-          Initialize-Venv, `
-          Clear-Venv, `
-          Use-Venv, `
-          Remove-Venv, `
-          Invoke-PythonInstallRequirements, `
-          Remove-PythonPackages, `
-          Invoke-PytestRun
+    New-LdoVenv, `
+    Initialize-LdoVenv, `
+    Use-LdoVenv, `
+    Clear-LdoVenv, `
+    Remove-LdoVenv, `
+    Invoke-LdoPythonInstallRequirements, `
+    Remove-LdoPythonPackages, `
+    Invoke-LdoPytestRun

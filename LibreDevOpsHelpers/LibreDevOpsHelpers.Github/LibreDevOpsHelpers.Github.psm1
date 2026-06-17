@@ -1,24 +1,47 @@
-function Get-GitHubActionsInput
-{
+Set-StrictMode -Version Latest
+
+function Get-LdoGitHubActionsInput {
+    <#
+    .SYNOPSIS
+        Reads a GitHub Actions action input from the environment.
+
+    .DESCRIPTION
+        Resolves an action input by checking the INPUT_<NAME> environment variable, trying both
+        the underscore-normalised form (GitHub's standard, dashes converted to underscores) and
+        the raw upper-cased form. Returns the default value when neither is set.
+
+    .PARAMETER Name
+        The action input name, for example 'my-input'.
+
+    .PARAMETER Default
+        Value to return when the input is not set. Defaults to $null.
+
+    .EXAMPLE
+        Get-LdoGitHubActionsInput -Name 'terraform-version' -Default 'latest'
+
+    .OUTPUTS
+        System.String
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
     param(
-        [string]$name,
-        $default = $null
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$Name,
+        $Default = $null
     )
-    # Try underscore format (GitHub standard)
-    $envVar = "INPUT_$($name.Replace('-', '_').ToUpper() )"
+
+    $envVar = "INPUT_$($Name.Replace('-', '_').ToUpper())"
     $value = [System.Environment]::GetEnvironmentVariable($envVar)
-    if (![string]::IsNullOrEmpty($value))
-    {
+    if (-not [string]::IsNullOrEmpty($value)) {
         return $value
     }
-    # Fallback: try dash format (what your env has)
-    $envVarDash = "INPUT_$($name.ToUpper() )"
-    $valueDash = [System.Environment]::GetEnvironmentVariable($envVarDash)
-    if (![string]::IsNullOrEmpty($valueDash))
-    {
-        return $valueDash
+
+    $envVarRaw = "INPUT_$($Name.ToUpper())"
+    $valueRaw = [System.Environment]::GetEnvironmentVariable($envVarRaw)
+    if (-not [string]::IsNullOrEmpty($valueRaw)) {
+        return $valueRaw
     }
-    return $default
+
+    return $Default
 }
 
-Export-ModuleMember -Function Get-GitHubActionsInput
+Export-ModuleMember -Function Get-LdoGitHubActionsInput
