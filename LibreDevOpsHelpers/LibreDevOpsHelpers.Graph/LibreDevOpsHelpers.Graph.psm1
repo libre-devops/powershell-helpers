@@ -31,6 +31,7 @@ function Get-LdoRetryAfterSeconds {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '',
         Justification = 'Returns a count of seconds; plural reads correctly.')]
     [CmdletBinding()]
+    [OutputType([double])]
     param($ErrorRecord)
 
     $response = $null

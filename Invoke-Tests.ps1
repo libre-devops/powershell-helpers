@@ -40,10 +40,14 @@ if (-not $SkipAnalyzer) {
     Import-Module PSScriptAnalyzer
 
     Write-Host 'Running PSScriptAnalyzer...'
-    $results = Invoke-ScriptAnalyzer `
-        -Path (Join-Path $root 'LibreDevOpsHelpers') `
-        -Recurse `
-        -Settings (Join-Path $root 'PSScriptAnalyzerSettings.psd1')
+    $settings = Join-Path $root 'PSScriptAnalyzerSettings.psd1'
+    # Analyze each module file in its own invocation. A single recursive call can make
+    # PSScriptAnalyzer build more than one dynamic module in a single dynamic assembly,
+    # which throws on some runtimes; per-file invocation avoids that.
+    $moduleFiles = Get-ChildItem -Path (Join-Path $root 'LibreDevOpsHelpers') -Recurse -Filter '*.psm1'
+    $results = foreach ($file in $moduleFiles) {
+        Invoke-ScriptAnalyzer -Path $file.FullName -Settings $settings
+    }
 
     if ($results) {
         $results | Format-Table -AutoSize | Out-String | Write-Host
