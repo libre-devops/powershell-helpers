@@ -1,31 +1,54 @@
-function Assert-HomebrewPath {
-    _LogMessage -Level "INFO" -Message "Ensuring Homebrew is available in the PATH..." -InvocationName $MyInvocation.MyCommand.Name
+Set-StrictMode -Version Latest
 
-    # Check if 'brew' is already available in the current session
+function Assert-LdoHomebrewPath {
+    <#
+    .SYNOPSIS
+        Ensures the Homebrew CLI is available on PATH.
+
+    .DESCRIPTION
+        Confirms brew is on PATH. If it is not, the well-known Homebrew install locations are
+        checked and the first one found is added to the process PATH for the current session.
+        Throws when Homebrew cannot be located.
+
+    .EXAMPLE
+        Assert-LdoHomebrewPath
+
+    .OUTPUTS
+        None
+    #>
+    [CmdletBinding()]
+    [OutputType([void])]
+    param()
+
+    Write-LdoLog -Level INFO -Message 'Ensuring Homebrew is available on PATH.'
+
     if (Get-Command brew -ErrorAction SilentlyContinue) {
-        _LogMessage -Level "INFO" -Message "Homebrew is already available in the PATH. Skipping shellenv import." -InvocationName $MyInvocation.MyCommand.Name
+        Write-LdoLog -Level INFO -Message 'Homebrew is already available on PATH.'
         return
     }
 
-    # Get the output of the shellenv command from Homebrew
-    $brewShellEnv = & /home/linuxbrew/.linuxbrew/bin/brew shellenv
-    if (-not $brewShellEnv) {
-        _LogMessage -Level "ERROR" -Message "brew shellenv returned no output. Cannot update environment." -InvocationName $MyInvocation.MyCommand.Name
-        exit 1
+    $candidates = @(
+        '/home/linuxbrew/.linuxbrew/bin/brew',
+        '/opt/homebrew/bin/brew',
+        '/usr/local/bin/brew'
+    )
+
+    $brewExe = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+    if (-not $brewExe) {
+        throw 'Homebrew executable not found in any known location.'
     }
 
-    # Apply the environment changes using Invoke-Expression
-    $brewShellEnvString = $brewShellEnv -join "`n"
-    Invoke-Expression $brewShellEnvString
+    $brewBin = Split-Path $brewExe -Parent
+    if ($env:PATH -notmatch [regex]::Escape($brewBin)) {
+        Write-LdoLog -Level DEBUG -Message "Temporarily adding '$brewBin' to PATH (process scope)."
+        $env:PATH = "${brewBin}:$env:PATH"
+    }
 
-    # Re-check if brew is now available
-    if (Get-Command brew -ErrorAction SilentlyContinue) {
-        _LogMessage -Level "INFO" -Message "Homebrew is now available in the PATH." -InvocationName $MyInvocation.MyCommand.Name
+    if (-not (Get-Command brew -ErrorAction SilentlyContinue)) {
+        throw 'Homebrew is still not available after updating PATH.'
     }
-    else {
-        _LogMessage -Level "ERROR" -Message "Homebrew is still not available after applying shellenv." -InvocationName $MyInvocation.MyCommand.Name
-        exit 1
-    }
+
+    Write-LdoLog -Level INFO -Message "Homebrew found at: $brewExe"
 }
 
-Export-ModuleMember -Function Assert-HomebrewPath
+Export-ModuleMember -Function Assert-LdoHomebrewPath

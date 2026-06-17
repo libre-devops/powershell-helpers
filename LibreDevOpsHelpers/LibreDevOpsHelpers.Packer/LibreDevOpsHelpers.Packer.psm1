@@ -1,84 +1,137 @@
-# Packer Module
+Set-StrictMode -Version Latest
 
-# Run 'packer init'
-function Invoke-PackerInit {
-    param (
-        [string]$TemplatePath
-    )
+function Assert-LdoPackerExitCode {
+    # Internal. Throws when the last native command exited non-zero.
+    [CmdletBinding()]
+    [OutputType([void])]
+    param([Parameter(Mandatory)][string]$Operation)
+
+    if ($LASTEXITCODE -ne 0) {
+        throw "$Operation failed with exit code $LASTEXITCODE."
+    }
+}
+
+function Invoke-LdoPackerInit {
+    <#
+    .SYNOPSIS
+        Runs 'packer init' against a template.
+
+    .DESCRIPTION
+        Initialises a Packer template, downloading required plugins. Throws on failure.
+
+    .PARAMETER TemplatePath
+        Path to the Packer template file or folder.
+
+    .EXAMPLE
+        Invoke-LdoPackerInit -TemplatePath ./image.pkr.hcl
+
+    .OUTPUTS
+        None
+    #>
+    [CmdletBinding()]
+    [OutputType([void])]
+    param([Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$TemplatePath)
 
     if (-not (Test-Path $TemplatePath)) {
-        _LogMessage -Level "ERROR" -Message "Packer template file not found: $TemplatePath" -InvocationName "$($MyInvocation.MyCommand.Name)"
         throw "Packer template file not found: $TemplatePath"
     }
 
-    _LogMessage -Level "INFO" -Message "Initializing Packer template: $TemplatePath" -InvocationName "$($MyInvocation.MyCommand.Name)"
+    Write-LdoLog -Level INFO -Message "Initializing Packer template: $TemplatePath"
     & packer init $TemplatePath
+    Assert-LdoPackerExitCode -Operation 'packer init'
 }
 
-# Run 'packer validate'
-function Invoke-PackerValidate {
-    param (
-        [string]$TemplatePath
-    )
+function Invoke-LdoPackerValidate {
+    <#
+    .SYNOPSIS
+        Runs 'packer validate' against a template.
+
+    .DESCRIPTION
+        Validates a Packer template. Throws on failure.
+
+    .PARAMETER TemplatePath
+        Path to the Packer template file or folder.
+
+    .EXAMPLE
+        Invoke-LdoPackerValidate -TemplatePath ./image.pkr.hcl
+
+    .OUTPUTS
+        None
+    #>
+    [CmdletBinding()]
+    [OutputType([void])]
+    param([Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$TemplatePath)
 
     if (-not (Test-Path $TemplatePath)) {
-        _LogMessage -Level "ERROR" -Message "Packer template file not found: $TemplatePath" -InvocationName "$($MyInvocation.MyCommand.Name)"
         throw "Packer template file not found: $TemplatePath"
     }
 
-    _LogMessage -Level "INFO" -Message "Validating Packer template: $TemplatePath" -InvocationName "$($MyInvocation.MyCommand.Name)"
+    Write-LdoLog -Level INFO -Message "Validating Packer template: $TemplatePath"
     & packer validate $TemplatePath
+    Assert-LdoPackerExitCode -Operation 'packer validate'
 }
 
-# Run 'packer build'
-function Invoke-PackerBuild {
-    param (
-        [string]$TemplatePath
-    )
+function Invoke-LdoPackerBuild {
+    <#
+    .SYNOPSIS
+        Runs 'packer build' against a template.
+
+    .DESCRIPTION
+        Builds an image from a Packer template. Throws on failure.
+
+    .PARAMETER TemplatePath
+        Path to the Packer template file or folder.
+
+    .EXAMPLE
+        Invoke-LdoPackerBuild -TemplatePath ./image.pkr.hcl
+
+    .OUTPUTS
+        None
+    #>
+    [CmdletBinding()]
+    [OutputType([void])]
+    param([Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$TemplatePath)
 
     if (-not (Test-Path $TemplatePath)) {
-        _LogMessage -Level "ERROR" -Message "Packer template file not found: $TemplatePath" -InvocationName "$($MyInvocation.MyCommand.Name)"
         throw "Packer template file not found: $TemplatePath"
     }
 
-    _LogMessage -Level "INFO" -Message "Building image with Packer template: $TemplatePath" -InvocationName "$($MyInvocation.MyCommand.Name)"
+    Write-LdoLog -Level INFO -Message "Building image with Packer template: $TemplatePath"
     & packer build $TemplatePath
+    Assert-LdoPackerExitCode -Operation 'packer build'
 }
 
-function Invoke-PackerWorkflow {
-    param (
-        [string]$TemplatePath
-    )
+function Invoke-LdoPackerWorkflow {
+    <#
+    .SYNOPSIS
+        Runs the full Packer init, validate, and build workflow.
 
-    try {
-        _LogMessage -Level "INFO" -Message "Starting Packer workflow." -InvocationName "$($MyInvocation.MyCommand.Name)"
+    .DESCRIPTION
+        Runs packer init, then validate, then build against a template, stopping and throwing at
+        the first failing step.
 
-        Invoke-PackerInit -TemplatePath $TemplatePath
-        if ($LASTEXITCODE -ne 0) {
-            throw "Packer init failed. Aborting workflow."
-        }
+    .PARAMETER TemplatePath
+        Path to the Packer template file or folder.
 
-        Invoke-PackerValidate -TemplatePath $TemplatePath
-        if ($LASTEXITCODE -ne 0) {
-            throw "Packer validate failed. Aborting workflow."
-        }
+    .EXAMPLE
+        Invoke-LdoPackerWorkflow -TemplatePath ./image.pkr.hcl
 
-        Invoke-PackerBuild -TemplatePath $TemplatePath
-        if ($LASTEXITCODE -ne 0) {
-            throw "Packer build failed. Aborting workflow."
-        }
+    .OUTPUTS
+        None
+    #>
+    [CmdletBinding()]
+    [OutputType([void])]
+    param([Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$TemplatePath)
 
-        _LogMessage -Level "INFO" -Message "Packer workflow completed successfully." -InvocationName "$($MyInvocation.MyCommand.Name)"
-    }
-    catch {
-        _LogMessage -Level "ERROR" -Message "Packer workflow failed: $_" -InvocationName "$($MyInvocation.MyCommand.Name)"
-        exit 1  # Ensure the script exits with failure status
-    }
+    Write-LdoLog -Level INFO -Message 'Starting Packer workflow.'
+    Invoke-LdoPackerInit -TemplatePath $TemplatePath
+    Invoke-LdoPackerValidate -TemplatePath $TemplatePath
+    Invoke-LdoPackerBuild -TemplatePath $TemplatePath
+    Write-LdoLog -Level SUCCESS -Message 'Packer workflow completed successfully.'
 }
 
-# Export functions
 Export-ModuleMember -Function `
-    Invoke-PackerInit, `
-    Invoke-PackerValidate, `
-    Invoke-PackerBuild, `
-    Invoke-PackerWorkflow
+    Invoke-LdoPackerInit, `
+    Invoke-LdoPackerValidate, `
+    Invoke-LdoPackerBuild, `
+    Invoke-LdoPackerWorkflow

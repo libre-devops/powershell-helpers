@@ -34,12 +34,12 @@ function Install-LdoAzureCli {
     param()
 
     if ((Get-LdoOperatingSystem) -eq 'Windows') {
-        Assert-ChocoPath
+        Assert-LdoChocoPath
         Write-LdoLog -Level INFO -Message 'Installing Azure CLI via Chocolatey.'
         choco install azure-cli -y
     }
     else {
-        Assert-HomebrewPath
+        Assert-LdoHomebrewPath
         Write-LdoLog -Level INFO -Message 'Installing Azure CLI via Homebrew.'
         brew install azure-cli
     }

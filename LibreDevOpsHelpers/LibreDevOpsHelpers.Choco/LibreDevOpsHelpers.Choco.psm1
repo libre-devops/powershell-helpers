@@ -1,49 +1,51 @@
-function Assert-ChocoPath
-{
+Set-StrictMode -Version Latest
+
+function Assert-LdoChocoPath {
+    <#
+    .SYNOPSIS
+        Ensures the Chocolatey CLI is available on PATH.
+
+    .DESCRIPTION
+        Confirms choco is on PATH. If it is not, the default install location is checked and, if
+        present, added to the process PATH for the current session. Throws when Chocolatey cannot
+        be located. On non-Windows hosts the check is skipped with a warning.
+
+    .EXAMPLE
+        Assert-LdoChocoPath
+
+    .OUTPUTS
+        None
+    #>
     [CmdletBinding()]
+    [OutputType([void])]
     param()
 
-    _LogMessage -Level 'INFO' -Message 'Ensuring Chocolatey is available in the PATH…' -InvocationName $MyInvocation.MyCommand.Name
+    Write-LdoLog -Level INFO -Message 'Ensuring Chocolatey is available on PATH.'
 
-    # Bail out quietly on non-Windows hosts
-    if (-not $IsWindows)
-    {
-        _LogMessage -Level 'WARN' -Message 'Chocolatey check skipped – current OS is not Windows.' -InvocationName $MyInvocation.MyCommand.Name
+    if (-not $IsWindows) {
+        Write-LdoLog -Level WARN -Message 'Chocolatey check skipped; current OS is not Windows.'
         return
     }
 
-    # ── 1. Check if "choco" is already on PATH ───────────────────────────────
     $chocoCmd = Get-Command choco -ErrorAction SilentlyContinue
 
-    # ── 2. Fallback to the default install location ──────────────────────────
-    if (-not $chocoCmd)
-    {
+    if (-not $chocoCmd) {
         $defaultExe = 'C:\ProgramData\Chocolatey\bin\choco.exe'
-        if (Test-Path $defaultExe)
-        {
+        if (Test-Path $defaultExe) {
             $chocoCmd = Get-Command -LiteralPath $defaultExe -CommandType Application
-
-            # Add the directory to the *process* PATH for this session
             $chocoBin = Split-Path $defaultExe -Parent
-            if ($env:PATH -notmatch [regex]::Escape($chocoBin))
-            {
-                _LogMessage -Level 'DEBUG' -Message "Temporarily adding '$chocoBin' to PATH (process scope)." -InvocationName $MyInvocation.MyCommand.Name
+            if ($env:PATH -notmatch [regex]::Escape($chocoBin)) {
+                Write-LdoLog -Level DEBUG -Message "Temporarily adding '$chocoBin' to PATH (process scope)."
                 $env:PATH = "$env:PATH;$chocoBin"
             }
         }
     }
 
-    # ── 3. Final verification ────────────────────────────────────────────────
-    if ($chocoCmd)
-    {
-        _LogMessage -Level 'INFO' -Message "Chocolatey found at: $( $chocoCmd.Source )" -InvocationName $MyInvocation.MyCommand.Name
-    }
-    else
-    {
-        _LogMessage -Level 'ERROR' -Message 'Chocolatey is not installed or not in PATH.' -InvocationName $MyInvocation.MyCommand.Name
+    if (-not $chocoCmd) {
         throw 'Chocolatey executable not found.'
     }
+
+    Write-LdoLog -Level INFO -Message "Chocolatey found at: $($chocoCmd.Source)"
 }
 
-Export-ModuleMember -Function Assert-ChocoPath
-
+Export-ModuleMember -Function Assert-LdoChocoPath
