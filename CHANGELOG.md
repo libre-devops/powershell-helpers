@@ -20,6 +20,21 @@ All notable changes to LibreDevOpsHelpers are recorded here.
   and version manager: `Install-LdoUv`, `Test-LdoUv`, `Install-LdoUvPython`, `Get-LdoUvPython`,
   `Set-LdoUvPythonPin`, `New-LdoUvVenv`, `Invoke-LdoUvSync`, `Invoke-LdoUvLock`, `Add-LdoUvPackage`,
   `Remove-LdoUvPackage`, `Invoke-LdoUvRun`, `Invoke-LdoUvPipInstall`, `Invoke-LdoUvPipUninstall`.
+- New `LibreDevOpsHelpers.Defender` module spanning four Microsoft Defender surfaces: Defender for
+  Cloud (`az security`: `Get-LdoDefenderSecureScore`, `Get-LdoDefenderRecommendation`,
+  `Get-LdoDefenderPlan`, `Set-LdoDefenderPlan`); Defender for Endpoint / XDR via the Graph Security
+  API and Defender for Endpoint API (`Get-LdoDefenderAlert`, `Invoke-LdoDefenderHuntingQuery`,
+  `Invoke-LdoDefenderDeviceIsolation`, `Invoke-LdoDefenderAvScan`); Defender Antivirus on Windows
+  (`Get-LdoDefenderAvStatus`, `Start-LdoDefenderAvScan`, `Update-LdoDefenderAvSignature`,
+  `Add-LdoDefenderAvExclusion`); and Defender for Endpoint on Linux via `mdatp` (`Get-LdoMdatpHealth`,
+  `Start-LdoMdatpScan`, `Update-LdoMdatpDefinition`, `Add-LdoMdatpExclusion`).
+- New `LibreDevOpsHelpers.GitLab` module wrapping the [glab](https://gitlab.com/gitlab-org/cli) CLI
+  and adding helpers for PowerShell running inside GitLab CI/CD pipelines: `Install-LdoGlab`,
+  `Test-LdoGlab`, `Connect-LdoGlab`, `Invoke-LdoGlabPipeline`, `Get-LdoGlabPipeline`,
+  `Wait-LdoGlabPipeline`, `New-LdoGlabMergeRequest`, `New-LdoGlabRelease`, `Set-LdoGlabCiVariable`,
+  `Get-LdoGlabCiVariable`, `Get-LdoGitLabCiVariable`, `Set-LdoGitLabCiOutput`, and
+  `Write-LdoGitLabCiSection` (collapsible/timed CI log sections). Tokens are passed via SecureString
+  and piped through stdin so they never reach the command line or logs.
 
 ### Changed
 - INFO and SUCCESS messages now route through `Write-Information` (a tagged, capturable
@@ -27,6 +42,25 @@ All notable changes to LibreDevOpsHelpers are recorded here.
   `Write-Host` output for interactive CLI use. WARN/ERROR/DEBUG stream routing is unchanged.
 - The default log output is now JSON rather than plain text. Anything that parsed the old
   text lines should either parse JSON or opt back in with `-Format Text` / `Set-LdoLogFormat`.
+- Terraform functions now assert that `terraform` is on PATH before running, so a missing CLI
+  fails with a clear message. `Invoke-LdoTerraformInit` defaults to `-input=false` for
+  non-interactive CI unless the caller already passes `-input`. `Convert-LdoTerraformPlanToJson`
+  verifies the `terraform show` exit code before writing, so a failure no longer leaves a corrupt
+  or empty JSON file.
+- `Get-LdoPublicIpAddress` now accepts `-TimeoutSec` (default 15) and validates that the endpoint
+  returned a real IP address, rather than passing an error page through as the result.
+- Python functions now use the shared `Assert-LdoLastExitCode` for uniform native-failure handling,
+  and `Invoke-LdoPytestRun` asserts its `-PythonExe` is on PATH before running.
+- TerraformDocs functions now use the shared `Assert-LdoCommand` / `Assert-LdoLastExitCode` helpers
+  and validate `CodePath`. `Update-LdoReadmeWithTerraformDocs` verifies the `terraform-docs` exit
+  code and writes the README in a single step, so a failure no longer leaves a half-written README.
+  `Set-LdoTerraformFileContent` now writes UTF-8.
+- `Invoke-LdoTerraformImportFromPlan` is hardened: it asserts the Azure CLI/terraform are present
+  and signed in up front, checks the exit code of every `terraform import` (a failed import is no
+  longer reported as success and the run now throws if any import fails), and drops the broken `--%`
+  token from the import call. `Get-LdoTerraformImportResourceId` now scopes its `az resource list`
+  and Resource Graph fallbacks by resource group/subscription so a same-named resource elsewhere
+  can't be matched and imported by mistake, and it validates the resolved subscription id.
 
 ## 2.0.0
 

@@ -116,4 +116,10 @@ Describe 'Get-LdoPublicIpAddress' {
             { Get-LdoPublicIpAddress } | Should -Throw
         }
     }
+    It 'throws when the response is not a valid IP address' {
+        InModuleScope LibreDevOpsHelpers.Utils {
+            Mock Invoke-RestMethod { '<html>error</html>' }
+            { Get-LdoPublicIpAddress } | Should -Throw '*unexpected value*'
+        }
+    }
 }

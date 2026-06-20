@@ -37,11 +37,20 @@ function Get-LdoTerraformImportResourceId {
     )
 
     try {
-        Write-LdoLog -Level INFO -Message "Resolving ARM id for $TfType/$($After.name)"
+        # Read name defensively: under StrictMode a missing property throws, and some resources
+        # (for example NSG associations) carry no 'name' in their planned attributes.
+        $afterName = if ($After.PSObject.Properties['name']) { $After.name } else { '<unnamed>' }
+        Write-LdoLog -Level INFO -Message "Resolving ARM id for $TfType/$afterName"
 
         if (-not $SubscriptionId) {
             if (-not $script:LdoSubscriptionIdCache) {
-                $script:LdoSubscriptionIdCache = & az account show --query id -o tsv
+                Assert-LdoCommand -Name 'az'
+                $sub = & az account show --query id -o tsv
+                Assert-LdoLastExitCode -Operation 'az account show'
+                if ([string]::IsNullOrWhiteSpace($sub)) {
+                    throw 'Could not resolve the Azure subscription id; is the Azure CLI signed in?'
+                }
+                $script:LdoSubscriptionIdCache = $sub.Trim()
             }
             $SubscriptionId = $script:LdoSubscriptionIdCache
         }
@@ -73,15 +82,28 @@ function Get-LdoTerraformImportResourceId {
             $TfType -replace '^azurerm_', '' -replace '_', '/'
         }
 
-        Write-LdoLog -Level INFO -Message "az resource list --name $($After.name) --resource-type $azType"
-        $id = & az resource list --name $After.name --resource-type $azType --query '[0].id' -o tsv
-        if ($id) {
-            return $id
+        # Scope lookups by resource group when the plan provides one, so a same-named resource in
+        # another group or subscription can't be matched and imported into state by mistake.
+        $rg = if ($After.PSObject.Properties['resource_group_name']) { $After.resource_group_name } else { $null }
+
+        Assert-LdoCommand -Name 'az'
+        $listArgs = @('resource', 'list', '--name', $After.name, '--resource-type', $azType, '--query', '[0].id', '-o', 'tsv')
+        if ($rg) { $listArgs += @('--resource-group', $rg) }
+        Write-LdoLog -Level INFO -Message "az $($listArgs -join ' ')"
+        $id = & az @listArgs
+        if ($LASTEXITCODE -eq 0 -and $id) {
+            return $id.Trim()
         }
 
-        $kusto = "Resources | where name == '$($After.name)' | take 1 | project id"
+        $clauses = @("name =~ '$($After.name)'", "subscriptionId =~ '$SubscriptionId'")
+        if ($rg) { $clauses += "resourceGroup =~ '$rg'" }
+        $kusto = 'Resources | where ' + ($clauses -join ' and ') + ' | take 1 | project id'
         Write-LdoLog -Level INFO -Message "az graph query (fallback) for $($After.name)"
-        return & az graph query -q $kusto --first 1 --output tsv
+        $graphId = & az graph query -q $kusto --first 1 --output tsv
+        if ($LASTEXITCODE -eq 0 -and $graphId) {
+            return $graphId.Trim()
+        }
+        return $null
     }
     catch {
         Write-LdoLog -Level ERROR -Message "ARM id lookup failed for ${TfType}: $_"
@@ -127,9 +149,20 @@ function Invoke-LdoTerraformImportFromPlan {
         [string]$Manifest = './import-map.csv'
     )
 
+    Assert-LdoCommand -Name 'az', 'terraform'
+
+    if (-not (Test-Path $CodePath -PathType Container)) {
+        throw "Terraform code path not found: $CodePath"
+    }
+
+    # Fail loudly once if the Azure CLI is not signed in, rather than silently skipping every
+    # resource when id resolution returns nothing.
+    & az account show -o none 2>$null
+    Assert-LdoLastExitCode -Operation 'az account show (is the Azure CLI signed in?)'
+
     try {
         Write-LdoLog -Level INFO -Message "Reading plan file $PlanJson"
-        $plan = Get-Content $PlanJson -Raw -ErrorAction Stop | ConvertFrom-Json
+        $plan = Get-Content -LiteralPath $PlanJson -Raw -ErrorAction Stop | ConvertFrom-Json
     }
     catch {
         Write-LdoLog -Level ERROR -Message "Cannot read or parse plan: $_"
@@ -214,28 +247,42 @@ function Invoke-LdoTerraformImportFromPlan {
         Write-LdoLog -Level ERROR -Message "Failed to write manifest: $_"
     }
 
-    foreach ($i in $imports) {
-        $cmdArgs = @('--%', $i.Address, $i.Id)
-        if ($DryRun) {
-            Write-LdoLog -Level INFO -Message "[DRY-RUN] terraform import $($cmdArgs -join ' ')"
-            continue
+    if ($DryRun) {
+        foreach ($i in $imports) {
+            Write-LdoLog -Level INFO -Message "[DRY-RUN] terraform import $($i.Address) $($i.Id)"
         }
+        Write-LdoLog -Level SUCCESS -Message "[DRY-RUN] $($imports.Count) resource(s) would be imported."
+        return
+    }
 
+    $importedCount = 0
+    $failedCount = 0
+    foreach ($i in $imports) {
+        Push-Location $CodePath
         try {
-            Push-Location $CodePath
             Write-LdoLog -Level INFO -Message "Importing $($i.Address)"
-            & terraform import @cmdArgs 2>&1
-            Write-LdoLog -Level INFO -Message "Imported $($i.Address)"
+            # Address and id are passed as discrete arguments; resource addresses containing
+            # brackets/quotes (e.g. foo["key"]) are safe as single array elements and need no
+            # stop-parsing token.
+            $output = & terraform import $i.Address $i.Id 2>&1
+            $output | ForEach-Object { Write-LdoLog -Level INFO -Message "terraform: $_" }
+            Assert-LdoLastExitCode -Operation "terraform import $($i.Address)"
+            Write-LdoLog -Level SUCCESS -Message "Imported $($i.Address)"
+            $importedCount++
         }
         catch {
             Write-LdoLog -Level ERROR -Message "terraform import failed for $($i.Address): $_"
+            $failedCount++
         }
         finally {
             Pop-Location
         }
     }
 
-    Write-LdoLog -Level SUCCESS -Message "Completed: $($imports.Count) resource(s) processed."
+    if ($failedCount -gt 0) {
+        throw "$failedCount of $($imports.Count) import(s) failed; see the log for details."
+    }
+    Write-LdoLog -Level SUCCESS -Message "Imported $importedCount resource(s)."
 }
 
 Export-ModuleMember -Function `

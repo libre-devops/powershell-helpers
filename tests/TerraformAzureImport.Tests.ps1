@@ -23,4 +23,10 @@ Describe 'Get-LdoTerraformImportResourceId' {
         $id = Get-LdoTerraformImportResourceId -TfType azurerm_storage_account -After $after -SubscriptionId 'sub'
         $id | Should -Be '/subscriptions/sub/resourceGroups/rg-test/providers/Microsoft.Storage/storageAccounts/sttest'
     }
+
+    It 'returns the subnet_id directly for an NSG association' {
+        $after = [pscustomobject]@{ subnet_id = '/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/vnet/subnets/snet' }
+        $id = Get-LdoTerraformImportResourceId -TfType azurerm_subnet_network_security_group_association -After $after -SubscriptionId 'sub'
+        $id | Should -Be '/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/vnet/subnets/snet'
+    }
 }

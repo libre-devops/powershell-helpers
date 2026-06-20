@@ -24,15 +24,16 @@ function Format-LdoTerraform {
         [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$CodePath
     )
 
+    if (-not (Test-Path $CodePath)) {
+        throw "Terraform code not found: $CodePath"
+    }
+
     $orig = Get-Location
     try {
-        $tf = Get-Command terraform -ErrorAction Stop
-        Write-LdoLog -Level INFO -Message "terraform found at '$($tf.Source)'"
+        Assert-LdoCommand -Name 'terraform'
         Set-Location $CodePath
         & terraform fmt -recursive
-        if ($LASTEXITCODE -ne 0) {
-            throw "terraform fmt returned exit code $LASTEXITCODE."
-        }
+        Assert-LdoLastExitCode -Operation 'terraform fmt -recursive'
         Write-LdoLog -Level INFO -Message 'Terraform files formatted (fmt -recursive).'
     }
     finally {
@@ -94,7 +95,7 @@ function Set-LdoTerraformFileContent {
         [Parameter(Mandatory)][AllowEmptyString()][string]$Content
     )
 
-    $Content | Set-Content -LiteralPath $Filename
+    $Content | Set-Content -LiteralPath $Filename -Encoding utf8
 }
 
 function Format-LdoTerraformVariables {
@@ -268,6 +269,9 @@ function Update-LdoReadmeWithTerraformDocs {
             return
         }
 
+        if (-not (Test-Path $CodePath)) {
+            throw "Terraform code not found: $CodePath"
+        }
         Set-Location $CodePath
 
         $build = @('build.tf', 'main.tf') | Where-Object { Test-Path $_ } | Select-Object -First 1
@@ -278,10 +282,13 @@ function Update-LdoReadmeWithTerraformDocs {
 
         Write-LdoLog -Level INFO -Message "Generating $ReadmeFile from $build and terraform-docs."
 
-        '```hcl' | Set-Content $ReadmeFile
-        Get-Content $build | Add-Content $ReadmeFile
-        '```' | Add-Content $ReadmeFile
-        terraform-docs markdown . | Add-Content $ReadmeFile
+        # Generate and verify terraform-docs succeeded before writing, so a failure never
+        # leaves a half-written README behind.
+        $docs = terraform-docs markdown .
+        Assert-LdoLastExitCode -Operation 'terraform-docs markdown'
+
+        $readmeLines = @('```hcl') + (Get-Content -LiteralPath $build) + @('```') + $docs
+        $readmeLines | Set-Content -LiteralPath $ReadmeFile -Encoding utf8
 
         Write-LdoLog -Level SUCCESS -Message "Updated $ReadmeFile."
     }

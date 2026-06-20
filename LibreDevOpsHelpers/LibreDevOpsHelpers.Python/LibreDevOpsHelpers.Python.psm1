@@ -55,9 +55,7 @@ function New-LdoVenv {
 
     Write-LdoLog -Level INFO -Message "Running: $pythonCmd -m venv $virtualEnvPath"
     & $pythonCmd -m venv $virtualEnvPath
-    if ($LASTEXITCODE -ne 0) {
-        throw "Failed to create virtual environment (exit $LASTEXITCODE)."
-    }
+    Assert-LdoLastExitCode -Operation "$pythonCmd -m venv"
     Write-LdoLog -Level SUCCESS -Message "Virtual environment '$VenvName' created at '$virtualEnvPath'."
 }
 
@@ -167,9 +165,7 @@ function Use-LdoVenv {
         $pythonCmd = Get-LdoPythonCommand
         Write-LdoLog -Level INFO -Message "Creating venv with: $pythonCmd -m venv $venvRoot"
         & $pythonCmd -m venv $venvRoot
-        if ($LASTEXITCODE -ne 0) {
-            throw "Failed to create virtual environment (exit $LASTEXITCODE)."
-        }
+        Assert-LdoLastExitCode -Operation "$pythonCmd -m venv"
     }
 
     if ($IsWindows) {
@@ -317,9 +313,7 @@ function Invoke-LdoPythonInstallRequirements {
 
     Write-LdoLog -Level INFO -Message "$pythonCmd $($pyArgs -join ' ')"
     & $pythonCmd @pyArgs
-    if ($LASTEXITCODE -ne 0) {
-        throw "pip install failed (exit $LASTEXITCODE)."
-    }
+    Assert-LdoLastExitCode -Operation 'pip install'
 
     Write-LdoLog -Level SUCCESS -Message 'Dependencies installed.'
 }
@@ -409,6 +403,7 @@ function Invoke-LdoPytestRun {
     $orig = Get-Location
     try {
         Set-Location $ProjectPath
+        Assert-LdoCommand -Name $PythonExe
 
         $extra = @()
         if ($CliExtraArgsJson) {
@@ -436,9 +431,7 @@ function Invoke-LdoPytestRun {
 
         Write-LdoLog -Level INFO -Message "$PythonExe $($cmd -join ' ')"
         & $PythonExe @cmd
-        if ($LASTEXITCODE -ne 0) {
-            throw "pytest failed (exit $LASTEXITCODE)."
-        }
+        Assert-LdoLastExitCode -Operation 'pytest'
 
         Write-LdoLog -Level SUCCESS -Message 'pytest completed successfully.'
     }

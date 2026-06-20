@@ -398,6 +398,9 @@ function Get-LdoPublicIpAddress {
     .PARAMETER Uri
         The IP echo endpoint. Defaults to https://checkip.amazonaws.com.
 
+    .PARAMETER TimeoutSec
+        Maximum seconds to wait for the endpoint. Defaults to 15.
+
     .EXAMPLE
         $ip = Get-LdoPublicIpAddress
 
@@ -407,13 +410,22 @@ function Get-LdoPublicIpAddress {
     [CmdletBinding()]
     [OutputType([string])]
     param(
-        [ValidateNotNullOrEmpty()][string]$Uri = 'https://checkip.amazonaws.com'
+        [ValidateNotNullOrEmpty()][string]$Uri = 'https://checkip.amazonaws.com',
+        [ValidateRange(1, 300)][int]$TimeoutSec = 15
     )
 
-    $ip = (Invoke-RestMethod -Uri $Uri -ErrorAction Stop).Trim()
+    $ip = (Invoke-RestMethod -Uri $Uri -TimeoutSec $TimeoutSec -ErrorAction Stop).Trim()
     if ([string]::IsNullOrWhiteSpace($ip)) {
         throw 'Failed to determine the public IP address.'
     }
+
+    # Validate the response really is an IP; an error page or captive portal would otherwise
+    # be returned to the caller as if it were an address.
+    $parsed = [System.Net.IPAddress]::None
+    if (-not [System.Net.IPAddress]::TryParse($ip, [ref]$parsed)) {
+        throw "Public IP endpoint '$Uri' returned an unexpected value: '$ip'"
+    }
+
     return $ip
 }
 

@@ -165,9 +165,27 @@ version management, project and dependency workflow, and the pip interface.
 - `New-LdoUvVenv`, `Invoke-LdoUvSync`, `Invoke-LdoUvLock`, `Add-LdoUvPackage`, `Remove-LdoUvPackage`
 - `Invoke-LdoUvRun`, `Invoke-LdoUvPipInstall`, `Invoke-LdoUvPipUninstall`
 
+### Defender
+Microsoft Defender across four surfaces: Defender for Cloud (`az security`), Defender for
+Endpoint / XDR (Graph Security API + Defender for Endpoint API), Defender Antivirus (Windows), and
+Defender for Endpoint on Linux (`mdatp`).
+- Cloud: `Get-LdoDefenderSecureScore`, `Get-LdoDefenderRecommendation`, `Get-LdoDefenderPlan`, `Set-LdoDefenderPlan`
+- Endpoint/XDR: `Get-LdoDefenderAlert`, `Invoke-LdoDefenderHuntingQuery`, `Invoke-LdoDefenderDeviceIsolation`, `Invoke-LdoDefenderAvScan`
+- Windows AV: `Get-LdoDefenderAvStatus`, `Start-LdoDefenderAvScan`, `Update-LdoDefenderAvSignature`, `Add-LdoDefenderAvExclusion`
+- Linux (mdatp): `Get-LdoMdatpHealth`, `Start-LdoMdatpScan`, `Update-LdoMdatpDefinition`, `Add-LdoMdatpExclusion`
+
 ### Github
 GitHub Actions helpers.
 - `Get-LdoGitHubActionsInput`
+
+### GitLab
+The [glab](https://gitlab.com/gitlab-org/cli) CLI plus helpers for PowerShell running inside GitLab
+CI/CD pipelines: install/detect/auth, pipelines, merge requests, releases, CI/CD variables, and
+pipeline runtime helpers.
+- `Install-LdoGlab`, `Test-LdoGlab`, `Connect-LdoGlab`
+- `Invoke-LdoGlabPipeline`, `Get-LdoGlabPipeline`, `Wait-LdoGlabPipeline`
+- `New-LdoGlabMergeRequest`, `New-LdoGlabRelease`, `Set-LdoGlabCiVariable`, `Get-LdoGlabCiVariable`
+- `Get-LdoGitLabCiVariable`, `Set-LdoGitLabCiOutput`, `Write-LdoGitLabCiSection`
 
 ### Pester
 Custom Pester operators and a test runner.
