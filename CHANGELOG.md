@@ -2,6 +2,32 @@
 
 All notable changes to LibreDevOpsHelpers are recorded here.
 
+## 2.1.0
+
+### Added
+- `Write-LdoLog` now emits structured JSON by default (newline-delimited JSON, one object
+  per line) carrying a UTC ISO-8601 `timestamp`, `level`, `invocation` and `message`,
+  ready for ingestion by log aggregators such as Splunk, Elasticsearch or Azure Monitor.
+- `Get-LdoLogLevel` to read the current minimum log level (companion to `Set-LdoLogLevel`).
+- `-Format Text` (per call) and `Set-LdoLogFormat` / `Get-LdoLogFormat` to switch between
+  JSON and the previous human-readable coloured line format. A `JsonIndented` format is also
+  available as an opt-in for local debugging (pretty-printed, not newline-delimited). The
+  default can also be set via the `LDO_LOG_FORMAT` environment variable, and the minimum level
+  via `LDO_LOG_LEVEL`.
+- `-Data` parameter on `Write-LdoLog` for merging extra structured properties (for example
+  correlation IDs or resource names) into the JSON record.
+- New `LibreDevOpsHelpers.Uv` module wrapping the [uv](https://docs.astral.sh/uv/) Python package
+  and version manager: `Install-LdoUv`, `Test-LdoUv`, `Install-LdoUvPython`, `Get-LdoUvPython`,
+  `Set-LdoUvPythonPin`, `New-LdoUvVenv`, `Invoke-LdoUvSync`, `Invoke-LdoUvLock`, `Add-LdoUvPackage`,
+  `Remove-LdoUvPackage`, `Invoke-LdoUvRun`, `Invoke-LdoUvPipInstall`, `Invoke-LdoUvPipUninstall`.
+
+### Changed
+- INFO and SUCCESS messages now route through `Write-Information` (a tagged, capturable
+  information-stream record) in JSON mode instead of `Write-Host`; Text mode keeps coloured
+  `Write-Host` output for interactive CLI use. WARN/ERROR/DEBUG stream routing is unchanged.
+- The default log output is now JSON rather than plain text. Anything that parsed the old
+  text lines should either parse JSON or opt back in with `-Format Text` / `Set-LdoLogFormat`.
+
 ## 2.0.0
 
 ### Changed (breaking)

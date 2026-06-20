@@ -36,7 +36,10 @@ Import-Module LibreDevOpsHelpers.Terraform
 - Functions validate their input, throw on failure (they never call `exit`), and check the exit
   code of any native CLI they invoke.
 - Logging goes through `Write-LdoLog`, which writes to the correct stream and never pollutes a
-  function's return value. Control verbosity with `Set-LdoLogLevel`.
+  function's return value. It emits structured JSON by default (one object per line, for log
+  aggregators); switch to a human-readable line with `Set-LdoLogFormat -Format Text`. Control
+  verbosity with `Set-LdoLogLevel`. Both default to the `LDO_LOG_FORMAT` / `LDO_LOG_LEVEL`
+  environment variables when set.
 
 ## Quick start
 
@@ -56,8 +59,9 @@ Connect-LdoAzureCli -Method ClientSecret -ClientId $id -ClientSecret $secret -Te
 ## Modules and commands
 
 ### Logger
-Levelled, timestamped logging routed to non-output streams.
-- `Write-LdoLog`, `Set-LdoLogLevel`
+Levelled, timestamped logging routed to non-output streams. Structured JSON by default, with an
+optional human-readable text format.
+- `Write-LdoLog`, `Set-LdoLogLevel`, `Get-LdoLogLevel`, `Set-LdoLogFormat`, `Get-LdoLogFormat`
 
 ### Utils
 General purpose helpers shared across the toolkit.
@@ -152,6 +156,14 @@ Package manager bootstrapping.
 Virtual environments, dependency install, and pytest.
 - `New-LdoVenv`, `Initialize-LdoVenv`, `Use-LdoVenv`, `Clear-LdoVenv`, `Remove-LdoVenv`,
   `Invoke-LdoPythonInstallRequirements`, `Remove-LdoPythonPackages`, `Invoke-LdoPytestRun`
+
+### Uv
+The [uv](https://docs.astral.sh/uv/) Python package and version manager: install/detect, Python
+version management, project and dependency workflow, and the pip interface.
+- `Install-LdoUv`, `Test-LdoUv`
+- `Install-LdoUvPython`, `Get-LdoUvPython`, `Set-LdoUvPythonPin`
+- `New-LdoUvVenv`, `Invoke-LdoUvSync`, `Invoke-LdoUvLock`, `Add-LdoUvPackage`, `Remove-LdoUvPackage`
+- `Invoke-LdoUvRun`, `Invoke-LdoUvPipInstall`, `Invoke-LdoUvPipUninstall`
 
 ### Github
 GitHub Actions helpers.

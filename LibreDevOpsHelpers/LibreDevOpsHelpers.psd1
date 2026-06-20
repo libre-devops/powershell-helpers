@@ -12,7 +12,7 @@
     RootModule = '.\LibreDevOpsHelpers.psm1'
 
     # Version number of this module.
-    ModuleVersion = '2.0.0'
+    ModuleVersion = '2.1.0'
 
     # Supported PSEditions
     # CompatiblePSEditions = @()
@@ -89,7 +89,8 @@
         'LibreDevOpsHelpers.Terraform.AzureImport/LibreDevOpsHelpers.Terraform.AzureImport.psm1',
         'LibreDevOpsHelpers.TerraformDocs/LibreDevOpsHelpers.TerraformDocs.psm1',
         'LibreDevOpsHelpers.Trivy/LibreDevOpsHelpers.Trivy.psm1',
-        'LibreDevOpsHelpers.Utils/LibreDevOpsHelpers.Utils.psm1'
+        'LibreDevOpsHelpers.Utils/LibreDevOpsHelpers.Utils.psm1',
+        'LibreDevOpsHelpers.Uv/LibreDevOpsHelpers.Uv.psm1'
     )
 
 
@@ -99,6 +100,7 @@
         'Add-LdoKeyVaultCurrentIpRule',
         'Add-LdoNsgCurrentIpRule',
         'Add-LdoStorageCurrentIpRule',
+        'Add-LdoUvPackage',
         'Assert-LdoChocoPath',
         'Assert-LdoCommand',
         'Assert-LdoDockerExists',
@@ -132,16 +134,21 @@
         'Get-LdoGitHubActionsInput',
         'Get-LdoGraphErrorDetail',
         'Get-LdoGraphToken',
+        'Get-LdoLogFormat',
+        'Get-LdoLogLevel',
         'Get-LdoOperatingSystem',
         'Get-LdoPublicIpAddress',
         'Get-LdoTerraformFileContent',
         'Get-LdoTerraformImportResourceId',
         'Get-LdoTerraformStackFolders',
+        'Get-LdoUvPython',
         'Initialize-LdoVenv',
         'Install-LdoAzureCli',
         'Install-LdoCheckov',
         'Install-LdoTenv',
         'Install-LdoTrivy',
+        'Install-LdoUv',
+        'Install-LdoUvPython',
         'Invoke-LdoAzureDevOpsTokenReplacement',
         'Invoke-LdoAzureDevOpsTokenReplacementRevert',
         'Invoke-LdoCheckov',
@@ -165,9 +172,15 @@
         'Invoke-LdoTerraformValidate',
         'Invoke-LdoTerraformWorkspaceSelect',
         'Invoke-LdoTrivy',
+        'Invoke-LdoUvLock',
+        'Invoke-LdoUvPipInstall',
+        'Invoke-LdoUvPipUninstall',
+        'Invoke-LdoUvRun',
+        'Invoke-LdoUvSync',
         'Invoke-LdoWithRetry',
         'New-LdoPassword',
         'New-LdoRandomSequence',
+        'New-LdoUvVenv',
         'New-LdoVenv',
         'Push-LdoDockerImage',
         'Register-LdoPesterAssertion',
@@ -176,15 +189,19 @@
         'Remove-LdoNsgRule',
         'Remove-LdoPythonPackages',
         'Remove-LdoStorageCurrentIpRule',
+        'Remove-LdoUvPackage',
         'Remove-LdoVenv',
         'Set-LdoFunctionAppSetting',
+        'Set-LdoLogFormat',
         'Set-LdoLogLevel',
         'Set-LdoTerraformFileContent',
+        'Set-LdoUvPythonPin',
         'Test-LdoAzureCliConnection',
         'Test-LdoAzurePowerShellConnection',
         'Test-LdoCommandOutputMatch',
         'Test-LdoPath',
         'Test-LdoTenv',
+        'Test-LdoUv',
         'Test-LdoZeroExitCode',
         'Update-LdoReadmeWithTerraformDocs',
         'Use-LdoVenv',
