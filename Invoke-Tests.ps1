@@ -45,8 +45,27 @@ if (-not $SkipAnalyzer) {
     # PSScriptAnalyzer build more than one dynamic module in a single dynamic assembly,
     # which throws on some runtimes; per-file invocation avoids that.
     $moduleFiles = Get-ChildItem -Path (Join-Path $root 'LibreDevOpsHelpers') -Recurse -Filter '*.psm1'
+
+    # PSScriptAnalyzer has a long-standing intermittent engine bug that surfaces as a
+    # NullReferenceException ("Object reference not set to an instance of an object")
+    # from Invoke-ScriptAnalyzer. It is non-deterministic (the same file/commit passes
+    # on a re-run) and reproduces even with only the default rule set, so it is not our
+    # settings. Normally it is a non-terminating error, but $ErrorActionPreference='Stop'
+    # promotes it to a job failure. Retry the affected file a few times before giving up.
+    $maxAttempts = 3
     $results = foreach ($file in $moduleFiles) {
-        Invoke-ScriptAnalyzer -Path $file.FullName -Settings $settings
+        for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+            try {
+                Invoke-ScriptAnalyzer -Path $file.FullName -Settings $settings -ErrorAction Stop
+                break
+            } catch [System.NullReferenceException] {
+                if ($attempt -eq $maxAttempts) {
+                    throw "PSScriptAnalyzer threw NullReferenceException on '$($file.Name)' after $maxAttempts attempts: $($_.Exception.Message)"
+                }
+                Write-Warning "PSScriptAnalyzer NullReferenceException on '$($file.Name)' (attempt $attempt/$maxAttempts); retrying..."
+                Start-Sleep -Milliseconds 250
+            }
+        }
     }
 
     if ($results) {
