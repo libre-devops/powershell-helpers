@@ -330,18 +330,11 @@ function Update-LdoReadmeWithTerraformDocs {
 
     $orig = Get-Location
     try {
-        try {
-            $td = Get-Command terraform-docs -ErrorAction Stop
-            Write-LdoLog -Level INFO -Message "terraform-docs found at '$($td.Source)'"
-        }
-        catch {
-            Write-LdoLog -Level WARN -Message 'terraform-docs not installed; README generation skipped.'
-            return
-        }
-
         Set-Location $CodePath
 
-        # Resolve the header: a header file takes precedence over an inline header.
+        # Resolve and validate the header first: a supplied-but-missing header file is a caller
+        # error and must throw regardless of whether terraform-docs is installed. A header file
+        # takes precedence over an inline header.
         $resolvedHeader = ''
         if ($ReadmeHeaderFile) {
             if (-not (Test-Path $ReadmeHeaderFile -PathType Leaf)) {
@@ -352,6 +345,15 @@ function Update-LdoReadmeWithTerraformDocs {
         }
         elseif ($ReadmeHeader) {
             $resolvedHeader = $ReadmeHeader
+        }
+
+        try {
+            $td = Get-Command terraform-docs -ErrorAction Stop
+            Write-LdoLog -Level INFO -Message "terraform-docs found at '$($td.Source)'"
+        }
+        catch {
+            Write-LdoLog -Level WARN -Message 'terraform-docs not installed; README generation skipped.'
+            return
         }
 
         # Write the hand-authored header plus markers. When no header is supplied, only ensure
