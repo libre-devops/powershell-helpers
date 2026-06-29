@@ -6,19 +6,28 @@ function Install-LdoTfLint {
         Installs the TFLint CLI.
 
     .DESCRIPTION
-        Installs TFLint with Chocolatey on Windows, the official install script on Linux, and
-        Homebrew on macOS, then verifies the tflint command is available. TFLint is not a
-        Homebrew formula on Linux, so the official script is used there.
+        Installs TFLint with Chocolatey on Windows. On Linux and macOS it downloads the official
+        release binary from GitHub: the version defaults to 'latest' and is resolved at runtime
+        (no hard-pinned version to maintain), and a specific version can be requested. The earlier
+        install script is avoided because it is being retired and discourages unpinned scripts.
+
+    .PARAMETER Version
+        TFLint version to install: 'latest' (default) or a specific tag like '0.59.1' / 'v0.59.1'.
 
     .EXAMPLE
         Install-LdoTfLint
+
+    .EXAMPLE
+        Install-LdoTfLint -Version 0.59.1
 
     .OUTPUTS
         None
     #>
     [CmdletBinding()]
     [OutputType([void])]
-    param()
+    param(
+        [string]$Version = 'latest'
+    )
 
     $os = (Get-LdoOperatingSystem).ToLower()
 
@@ -26,22 +35,51 @@ function Install-LdoTfLint {
         Assert-LdoChocoPath
         Write-LdoLog -Level INFO -Message 'Installing TFLint via Chocolatey on Windows.'
         choco install tflint -y
+        Assert-LdoCommand -Name @('tflint')
+        Write-LdoLog -Level SUCCESS -Message 'TFLint installed.'
+        return
     }
-    elseif ($os -eq 'linux') {
-        # tflint is not in Homebrew core; use the maintainers' official install script. curl is
-        # invoked through bash because in PowerShell "curl" is an alias for Invoke-WebRequest.
-        Write-LdoLog -Level INFO -Message 'Installing TFLint via the official install script.'
-        bash -c 'curl -fsSL https://raw.githubusercontent.com/terraform-linters/tflint/master/install_linux.sh | bash'
-        Assert-LdoLastExitCode -Operation 'tflint install script'
+
+    # Resolve 'latest' to a concrete tag by following the releases/latest redirect (no API token,
+    # no rate-limit concern). curl is run through bash because in PowerShell "curl" is an alias.
+    if ($Version -eq 'latest') {
+        $effectiveUrl = (bash -c "curl -fsSL -o /dev/null -w '%{url_effective}' https://github.com/terraform-linters/tflint/releases/latest").Trim()
+        Assert-LdoLastExitCode -Operation 'resolve latest tflint release'
+        $tag = ($effectiveUrl.TrimEnd('/') -split '/')[-1]
     }
     else {
-        Assert-LdoHomebrewPath
-        Write-LdoLog -Level INFO -Message 'Installing TFLint via Homebrew on macOS.'
-        brew install tflint
+        $tag = if ($Version.StartsWith('v')) { $Version } else { "v$Version" }
+    }
+
+    $platform = if ($os -eq 'macos') { 'darwin' } else { 'linux' }
+    $arch = if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq [System.Runtime.InteropServices.Architecture]::Arm64) { 'arm64' } else { 'amd64' }
+    $url = "https://github.com/terraform-linters/tflint/releases/download/$tag/tflint_${platform}_${arch}.zip"
+
+    $work = Join-Path ([System.IO.Path]::GetTempPath()) ("ldo-tflint-" + [guid]::NewGuid())
+    New-Item -ItemType Directory -Path $work | Out-Null
+    try {
+        Write-LdoLog -Level INFO -Message "Downloading TFLint $tag from $url"
+        $zip = Join-Path $work 'tflint.zip'
+        Invoke-WebRequest -Uri $url -OutFile $zip
+        Expand-Archive -Path $zip -DestinationPath $work -Force
+
+        $binary = Join-Path $work 'tflint'
+        & chmod '+x' $binary
+        $dest = '/usr/local/bin/tflint'
+        try {
+            Move-Item -Path $binary -Destination $dest -Force -ErrorAction Stop
+        }
+        catch {
+            bash -c "sudo mv '$binary' '$dest'"
+            Assert-LdoLastExitCode -Operation 'install tflint to /usr/local/bin'
+        }
+    }
+    finally {
+        Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue
     }
 
     Assert-LdoCommand -Name @('tflint')
-    Write-LdoLog -Level SUCCESS -Message 'TFLint installed.'
+    Write-LdoLog -Level SUCCESS -Message "TFLint $tag installed."
 }
 
 function Invoke-LdoTfLint {

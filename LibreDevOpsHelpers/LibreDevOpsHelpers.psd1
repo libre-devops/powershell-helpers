@@ -12,7 +12,7 @@
     RootModule = '.\LibreDevOpsHelpers.psm1'
 
     # Version number of this module.
-    ModuleVersion = '2.2.2'
+    ModuleVersion = '2.2.3'
 
     # Supported PSEditions
     # CompatiblePSEditions = @()
@@ -279,7 +279,7 @@
             IconUri = 'https://libredevops.org/favicon.ico'
 
             Tags = 'terraform', 'devops', 'azure', 'checkov', 'trivy', 'tflint', 'helpers'
-            ReleaseNotes = 'v2.2.2: fix Install-LdoTfLint on Linux (tflint is not a Homebrew formula; use the official install script). v2.2.1: fix Invoke-LdoTrivy for trivy 0.71+ (drop the removed --no-progress flag; gate on --severity HIGH,CRITICAL with --exit-code 1; skip checks via a temporary .trivyignore). v2.2.0: add the TfLint module (Install-LdoTfLint, Invoke-LdoTfLint); upgrade Write-LdoLog to the full OpenTelemetry log record (severity_number, service.name, trace_id/span_id/correlation_id) with TRACE and FATAL levels and a Set-LdoTraceContext trace context; add New-LdoTraceId/New-LdoSpanId/New-LdoCorrelationId/New-LdoHexId; rework Update-LdoReadmeWithTerraformDocs to use a HEADER.md and terraform-docs inject markers, with a new Set-LdoReadmeHeader. See README.md.'
+            ReleaseNotes = 'v2.2.3: Install-LdoTfLint downloads the official release binary, resolving latest at runtime (the install script is being retired). v2.2.2: fix Install-LdoTfLint on Linux (tflint is not a Homebrew formula; use the official install script). v2.2.1: fix Invoke-LdoTrivy for trivy 0.71+ (drop the removed --no-progress flag; gate on --severity HIGH,CRITICAL with --exit-code 1; skip checks via a temporary .trivyignore). v2.2.0: add the TfLint module (Install-LdoTfLint, Invoke-LdoTfLint); upgrade Write-LdoLog to the full OpenTelemetry log record (severity_number, service.name, trace_id/span_id/correlation_id) with TRACE and FATAL levels and a Set-LdoTraceContext trace context; add New-LdoTraceId/New-LdoSpanId/New-LdoCorrelationId/New-LdoHexId; rework Update-LdoReadmeWithTerraformDocs to use a HEADER.md and terraform-docs inject markers, with a new Set-LdoReadmeHeader. See README.md.'
         }
     }
 }
