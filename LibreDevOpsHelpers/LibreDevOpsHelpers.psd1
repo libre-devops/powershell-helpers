@@ -12,7 +12,7 @@
     RootModule = '.\LibreDevOpsHelpers.psm1'
 
     # Version number of this module.
-    ModuleVersion = '2.1.0'
+    ModuleVersion = '2.2.0'
 
     # Supported PSEditions
     # CompatiblePSEditions = @()
@@ -90,6 +90,7 @@
         'LibreDevOpsHelpers.Terraform/LibreDevOpsHelpers.Terraform.psm1',
         'LibreDevOpsHelpers.Terraform.AzureImport/LibreDevOpsHelpers.Terraform.AzureImport.psm1',
         'LibreDevOpsHelpers.TerraformDocs/LibreDevOpsHelpers.TerraformDocs.psm1',
+        'LibreDevOpsHelpers.TfLint/LibreDevOpsHelpers.TfLint.psm1',
         'LibreDevOpsHelpers.Trivy/LibreDevOpsHelpers.Trivy.psm1',
         'LibreDevOpsHelpers.Utils/LibreDevOpsHelpers.Utils.psm1',
         'LibreDevOpsHelpers.Uv/LibreDevOpsHelpers.Uv.psm1'
@@ -113,6 +114,7 @@
         'Assert-LdoLastExitCode',
         'Build-LdoDockerImage',
         'Clear-LdoGraphTokenCache',
+        'Clear-LdoTraceContext',
         'Clear-LdoVenv',
         'Compress-LdoFunctionAppSource',
         'Connect-LdoAzureCli',
@@ -155,12 +157,14 @@
         'Get-LdoTerraformFileContent',
         'Get-LdoTerraformImportResourceId',
         'Get-LdoTerraformStackFolders',
+        'Get-LdoTraceContext',
         'Get-LdoUvPython',
         'Initialize-LdoVenv',
         'Install-LdoAzureCli',
         'Install-LdoCheckov',
         'Install-LdoGlab',
         'Install-LdoTenv',
+        'Install-LdoTfLint',
         'Install-LdoTrivy',
         'Install-LdoUv',
         'Install-LdoUvPython',
@@ -190,6 +194,7 @@
         'Invoke-LdoTerraformPlanDestroy',
         'Invoke-LdoTerraformValidate',
         'Invoke-LdoTerraformWorkspaceSelect',
+        'Invoke-LdoTfLint',
         'Invoke-LdoTrivy',
         'Invoke-LdoUvLock',
         'Invoke-LdoUvPipInstall',
@@ -197,10 +202,14 @@
         'Invoke-LdoUvRun',
         'Invoke-LdoUvSync',
         'Invoke-LdoWithRetry',
+        'New-LdoCorrelationId',
         'New-LdoGlabMergeRequest',
         'New-LdoGlabRelease',
+        'New-LdoHexId',
         'New-LdoPassword',
         'New-LdoRandomSequence',
+        'New-LdoSpanId',
+        'New-LdoTraceId',
         'New-LdoUvVenv',
         'New-LdoVenv',
         'Push-LdoDockerImage',
@@ -218,7 +227,9 @@
         'Set-LdoGlabCiVariable',
         'Set-LdoLogFormat',
         'Set-LdoLogLevel',
+        'Set-LdoReadmeHeader',
         'Set-LdoTerraformFileContent',
+        'Set-LdoTraceContext',
         'Set-LdoUvPythonPin',
         'Start-LdoDefenderAvScan',
         'Start-LdoMdatpScan',
@@ -267,8 +278,8 @@
             ProjectUri = 'https://github.com/libre-devops/powershell-helpers'
             IconUri = 'https://libredevops.org/favicon.ico'
 
-            Tags = 'terraform', 'devops', 'azure', 'checkov', 'helpers'
-            ReleaseNotes = 'v2.0.0 breaking: all commands renamed to the Ldo prefix. Standardised help, validation, logging, and tests across every module. See README.md.'
+            Tags = 'terraform', 'devops', 'azure', 'checkov', 'trivy', 'tflint', 'helpers'
+            ReleaseNotes = 'v2.2.0: add the TfLint module (Install-LdoTfLint, Invoke-LdoTfLint); upgrade Write-LdoLog to the full OpenTelemetry log record (severity_number, service.name, trace_id/span_id/correlation_id) with TRACE and FATAL levels and a Set-LdoTraceContext trace context; add New-LdoTraceId/New-LdoSpanId/New-LdoCorrelationId/New-LdoHexId; rework Update-LdoReadmeWithTerraformDocs to use a HEADER.md and terraform-docs inject markers, with a new Set-LdoReadmeHeader. See README.md.'
         }
     }
 }

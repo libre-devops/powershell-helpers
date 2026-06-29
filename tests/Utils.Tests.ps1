@@ -61,6 +61,26 @@ Describe 'New-LdoPassword' {
     }
 }
 
+Describe 'New-LdoHexId and trace/span/correlation ids' {
+    It 'New-LdoHexId returns 2 x ByteCount lowercase hex characters' {
+        $id = New-LdoHexId -ByteCount 16
+        $id.Length | Should -Be 32
+        $id | Should -Match '^[0-9a-f]+$'
+    }
+    It 'New-LdoTraceId returns 32 hex characters' {
+        (New-LdoTraceId) | Should -Match '^[0-9a-f]{32}$'
+    }
+    It 'New-LdoSpanId returns 16 hex characters' {
+        (New-LdoSpanId) | Should -Match '^[0-9a-f]{16}$'
+    }
+    It 'New-LdoCorrelationId returns 32 hex characters' {
+        (New-LdoCorrelationId) | Should -Match '^[0-9a-f]{32}$'
+    }
+    It 'produces a different id each call' {
+        (New-LdoTraceId) | Should -Not -Be (New-LdoTraceId)
+    }
+}
+
 Describe 'ConvertTo-LdoBoolean' {
     It 'maps truthy strings to true' -ForEach @('true', 'TRUE', '1', 'yes', 'Y') {
         ConvertTo-LdoBoolean -Value $_ | Should -BeTrue

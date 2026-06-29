@@ -247,6 +247,103 @@ function New-LdoPassword {
     return (-join $chars)
 }
 
+function New-LdoHexId {
+    <#
+    .SYNOPSIS
+        Generates a lowercase random hex identifier.
+
+    .DESCRIPTION
+        Returns a cryptographically strong, lowercase hexadecimal string of the requested byte
+        length (the string is twice as many characters as bytes). Used to build OpenTelemetry
+        trace and span identifiers and correlation ids.
+
+    .PARAMETER ByteCount
+        Number of random bytes. The returned string has 2 x ByteCount hex characters.
+
+    .EXAMPLE
+        New-LdoHexId -ByteCount 16   # 32 hex characters
+
+    .OUTPUTS
+        System.String
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)]
+        [ValidateRange(1, 64)]
+        [int]$ByteCount
+    )
+
+    $bytes = [System.Security.Cryptography.RandomNumberGenerator]::GetBytes($ByteCount)
+    return [System.Convert]::ToHexString($bytes).ToLowerInvariant()
+}
+
+function New-LdoTraceId {
+    <#
+    .SYNOPSIS
+        Generates a W3C trace id (32 lowercase hex characters).
+
+    .DESCRIPTION
+        Returns a 16-byte (32 hex character) cryptographically strong identifier suitable for
+        the OpenTelemetry / W3C Trace Context trace_id field.
+
+    .EXAMPLE
+        New-LdoTraceId
+
+    .OUTPUTS
+        System.String
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+
+    return New-LdoHexId -ByteCount 16
+}
+
+function New-LdoSpanId {
+    <#
+    .SYNOPSIS
+        Generates a W3C span id (16 lowercase hex characters).
+
+    .DESCRIPTION
+        Returns an 8-byte (16 hex character) cryptographically strong identifier suitable for
+        the OpenTelemetry / W3C Trace Context span_id field.
+
+    .EXAMPLE
+        New-LdoSpanId
+
+    .OUTPUTS
+        System.String
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+
+    return New-LdoHexId -ByteCount 8
+}
+
+function New-LdoCorrelationId {
+    <#
+    .SYNOPSIS
+        Generates a correlation id (32 lowercase hex characters).
+
+    .DESCRIPTION
+        Returns a 16-byte (32 hex character) cryptographically strong identifier used to
+        correlate all log records emitted by a single run.
+
+    .EXAMPLE
+        New-LdoCorrelationId
+
+    .OUTPUTS
+        System.String
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+
+    return New-LdoHexId -ByteCount 16
+}
+
 function ConvertTo-LdoBoolean {
     <#
     .SYNOPSIS
@@ -435,6 +532,10 @@ Export-ModuleMember -Function `
     Assert-LdoEnvironmentVariable, `
     New-LdoRandomSequence, `
     New-LdoPassword, `
+    New-LdoHexId, `
+    New-LdoTraceId, `
+    New-LdoSpanId, `
+    New-LdoCorrelationId, `
     ConvertTo-LdoBoolean, `
     ConvertTo-LdoNull, `
     Get-LdoOperatingSystem, `

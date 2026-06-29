@@ -227,16 +227,69 @@ function Format-LdoTerraformCode {
     }
 }
 
+function Set-LdoReadmeHeader {
+    <#
+    .SYNOPSIS
+        Writes a hand-authored markdown header above the terraform-docs injection markers.
+
+    .DESCRIPTION
+        Writes the supplied header content to the README, followed by the
+        <!-- BEGIN_TF_DOCS --> / <!-- END_TF_DOCS --> markers that terraform-docs injects
+        between. Run Update-LdoReadmeWithTerraformDocs afterwards to populate the section
+        between the markers. When the header is empty, only the markers are written.
+
+        Resulting README structure:
+
+            [Your hand-authored header: title, description, usage example]
+
+            <!-- BEGIN_TF_DOCS -->
+            <!-- END_TF_DOCS -->
+
+    .PARAMETER Header
+        Markdown content to place above the markers. Pass an empty string to write
+        markers-only.
+
+    .PARAMETER ReadmeFile
+        README file path to write. Defaults to README.md.
+
+    .EXAMPLE
+        Set-LdoReadmeHeader -Header (Get-Content ./HEADER.md -Raw)
+
+    .OUTPUTS
+        None
+    #>
+    [CmdletBinding()]
+    [OutputType([void])]
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Header,
+        [string]$ReadmeFile = 'README.md'
+    )
+
+    $markers = "<!-- BEGIN_TF_DOCS -->`n<!-- END_TF_DOCS -->`n"
+    $body = if ($Header.Trim()) {
+        $Header.TrimEnd() + "`n`n" + $markers
+    }
+    else {
+        $markers
+    }
+
+    Set-Content -LiteralPath $ReadmeFile -Value $body -Encoding utf8 -NoNewline
+    Write-LdoLog -Level INFO -Message "Wrote README header to $ReadmeFile."
+}
+
 function Update-LdoReadmeWithTerraformDocs {
     <#
     .SYNOPSIS
-        Regenerates README.md for a Terraform folder using terraform-docs.
+        Regenerates the terraform-docs section of a README for a Terraform folder.
 
     .DESCRIPTION
-        Writes the chosen build file (build.tf or main.tf) into a fenced HCL block at the top of
-        the README, then appends the terraform-docs markdown table. Skips silently when
-        terraform-docs is not installed or no build file is present. The original working
-        directory is always restored.
+        Brings a module README in line with the Libre DevOps Terraform standard. When a header
+        is supplied (inline or from a HEADER.md file), it writes that hand-authored header above
+        the <!-- BEGIN_TF_DOCS --> / <!-- END_TF_DOCS --> markers, then runs terraform-docs in
+        inject mode so only the content between the markers is regenerated and the header is
+        preserved on every run. When a .terraform-docs.yml is present it is used automatically
+        ('terraform-docs .'); otherwise a markdown table is injected. Skips with a warning when
+        terraform-docs is not installed. The original working directory is always restored.
 
     .PARAMETER CodePath
         Path to the Terraform configuration folder.
@@ -244,8 +297,19 @@ function Update-LdoReadmeWithTerraformDocs {
     .PARAMETER ReadmeFile
         README file name within the folder. Defaults to README.md.
 
+    .PARAMETER ReadmeHeader
+        Hand-authored markdown header written above the markers. Ignored when ReadmeHeaderFile
+        is supplied.
+
+    .PARAMETER ReadmeHeaderFile
+        Path to a markdown file (for example HEADER.md) used as the README header. Resolved
+        relative to CodePath when not absolute. Throws when supplied but not found.
+
     .EXAMPLE
         Update-LdoReadmeWithTerraformDocs -CodePath ./terraform
+
+    .EXAMPLE
+        Update-LdoReadmeWithTerraformDocs -CodePath . -ReadmeHeaderFile HEADER.md
 
     .OUTPUTS
         None
@@ -255,8 +319,14 @@ function Update-LdoReadmeWithTerraformDocs {
     [OutputType([void])]
     param(
         [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$CodePath,
-        [string]$ReadmeFile = 'README.md'
+        [string]$ReadmeFile = 'README.md',
+        [string]$ReadmeHeader = '',
+        [string]$ReadmeHeaderFile = ''
     )
+
+    if (-not (Test-Path $CodePath)) {
+        throw "Terraform code not found: $CodePath"
+    }
 
     $orig = Get-Location
     try {
@@ -269,26 +339,40 @@ function Update-LdoReadmeWithTerraformDocs {
             return
         }
 
-        if (-not (Test-Path $CodePath)) {
-            throw "Terraform code not found: $CodePath"
-        }
         Set-Location $CodePath
 
-        $build = @('build.tf', 'main.tf') | Where-Object { Test-Path $_ } | Select-Object -First 1
-        if (-not $build) {
-            Write-LdoLog -Level WARN -Message 'No build.tf or main.tf found; README not updated.'
-            return
+        # Resolve the header: a header file takes precedence over an inline header.
+        $resolvedHeader = ''
+        if ($ReadmeHeaderFile) {
+            if (-not (Test-Path $ReadmeHeaderFile -PathType Leaf)) {
+                throw "README header file not found: $ReadmeHeaderFile"
+            }
+            $resolvedHeader = Get-Content -Raw -LiteralPath $ReadmeHeaderFile
+            Write-LdoLog -Level INFO -Message "Using README header from $ReadmeHeaderFile."
+        }
+        elseif ($ReadmeHeader) {
+            $resolvedHeader = $ReadmeHeader
         }
 
-        Write-LdoLog -Level INFO -Message "Generating $ReadmeFile from $build and terraform-docs."
+        # Write the hand-authored header plus markers. When no header is supplied, only ensure
+        # the markers exist so terraform-docs has somewhere to inject without clobbering any
+        # existing hand-authored content above them.
+        if ($resolvedHeader) {
+            Set-LdoReadmeHeader -Header $resolvedHeader -ReadmeFile $ReadmeFile
+        }
+        elseif (-not (Test-Path $ReadmeFile)) {
+            Set-LdoReadmeHeader -Header '' -ReadmeFile $ReadmeFile
+        }
 
-        # Generate and verify terraform-docs succeeded before writing, so a failure never
-        # leaves a half-written README behind.
-        $docs = terraform-docs markdown .
-        Assert-LdoLastExitCode -Operation 'terraform-docs markdown'
-
-        $readmeLines = @('```hcl') + (Get-Content -LiteralPath $build) + @('```') + $docs
-        $readmeLines | Set-Content -LiteralPath $ReadmeFile -Encoding utf8
+        if (Test-Path '.terraform-docs.yml') {
+            Write-LdoLog -Level INFO -Message 'Injecting terraform-docs output using .terraform-docs.yml.'
+            terraform-docs .
+        }
+        else {
+            Write-LdoLog -Level INFO -Message 'Injecting terraform-docs markdown table (no .terraform-docs.yml found).'
+            terraform-docs markdown table --output-file $ReadmeFile --output-mode inject .
+        }
+        Assert-LdoLastExitCode -Operation 'terraform-docs'
 
         Write-LdoLog -Level SUCCESS -Message "Updated $ReadmeFile."
     }
@@ -304,4 +388,5 @@ Export-ModuleMember -Function `
     Set-LdoTerraformFileContent, `
     Format-LdoTerraformVariables, `
     Format-LdoTerraformOutputs, `
+    Set-LdoReadmeHeader, `
     Update-LdoReadmeWithTerraformDocs

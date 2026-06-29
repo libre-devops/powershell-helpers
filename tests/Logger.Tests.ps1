@@ -110,3 +110,91 @@ Describe 'Set-LdoLogLevel' {
         Get-LdoLogLevel | Should -Be 'WARN'
     }
 }
+
+Describe 'Write-LdoLog (OpenTelemetry fields)' {
+
+    It 'emits severity_number and falls back service.name to the invocation name' {
+        $warning = Write-LdoLog -Level WARN -Message 'x' -InvocationName 'test' 3>&1
+        $obj = $warning.Message | ConvertFrom-Json
+        $obj.severity_number | Should -Be 13
+        $obj.'service.name'  | Should -Be 'test'
+    }
+
+    It 'honours LDO_SERVICE_NAME for service.name' {
+        $env:LDO_SERVICE_NAME = 'terraform-azure'
+        try {
+            $warning = Write-LdoLog -Level WARN -Message 'x' -InvocationName 'test' 3>&1
+            ($warning.Message | ConvertFrom-Json).'service.name' | Should -Be 'terraform-azure'
+        }
+        finally {
+            Remove-Item Env:LDO_SERVICE_NAME -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'maps SUCCESS to INFO severity (9)' {
+        $info = Write-LdoLog -Level SUCCESS -Message 'done' -InvocationName 'test' 6>&1
+        ($info.MessageData | ConvertFrom-Json).severity_number | Should -Be 9
+    }
+}
+
+Describe 'Write-LdoLog (TRACE and FATAL levels)' {
+
+    AfterEach { Set-LdoLogLevel -Level INFO }
+
+    It 'routes FATAL to the error stream with severity_number 21' {
+        $err = Write-LdoLog -Level FATAL -Message 'down' -InvocationName 'test' 2>&1
+        $obj = $err.ToString() | ConvertFrom-Json
+        $obj.message         | Should -Be 'down'
+        $obj.severity_number | Should -Be 21
+    }
+
+    It 'suppresses TRACE below the INFO floor' {
+        Set-LdoLogLevel -Level INFO
+        $out = Write-LdoLog -Level TRACE -Message 'noise' -InvocationName 'test' 4>&1 3>&1 6>&1
+        $out | Should -BeNullOrEmpty
+    }
+
+    It 'accepts TRACE as a valid level for Set-LdoLogLevel' {
+        { Set-LdoLogLevel -Level TRACE } | Should -Not -Throw
+    }
+}
+
+Describe 'Trace context' {
+
+    AfterEach { Clear-LdoTraceContext }
+
+    It 'Set-LdoTraceContext -Generate populates all three ids with the right lengths' {
+        Set-LdoTraceContext -Generate
+        $ctx = Get-LdoTraceContext
+        $ctx.trace_id.Length       | Should -Be 32
+        $ctx.span_id.Length        | Should -Be 16
+        $ctx.correlation_id.Length | Should -Be 32
+    }
+
+    It 'stamps trace_id, span_id and correlation_id onto the record' {
+        Set-LdoTraceContext -Generate
+        $ctx = Get-LdoTraceContext
+        $warning = Write-LdoLog -Level WARN -Message 'x' -InvocationName 'test' 3>&1
+        $obj = $warning.Message | ConvertFrom-Json
+        $obj.trace_id       | Should -Be $ctx.trace_id
+        $obj.span_id        | Should -Be $ctx.span_id
+        $obj.correlation_id | Should -Be $ctx.correlation_id
+    }
+
+    It 'rotates the span while keeping the trace and correlation id' {
+        Set-LdoTraceContext -Generate
+        $before = Get-LdoTraceContext
+        Set-LdoTraceContext -SpanId (New-LdoSpanId)
+        $after = Get-LdoTraceContext
+        $after.span_id        | Should -Not -Be $before.span_id
+        $after.trace_id       | Should -Be $before.trace_id
+        $after.correlation_id | Should -Be $before.correlation_id
+    }
+
+    It 'Clear-LdoTraceContext removes the trace fields from records' {
+        Set-LdoTraceContext -Generate
+        Clear-LdoTraceContext
+        $warning = Write-LdoLog -Level WARN -Message 'x' -InvocationName 'test' 3>&1
+        ($warning.Message | ConvertFrom-Json).PSObject.Properties.Name | Should -Not -Contain 'trace_id'
+    }
+}

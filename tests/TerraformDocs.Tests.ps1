@@ -8,9 +8,45 @@ Describe 'TerraformDocs module surface' {
         'Format-LdoTerraform', 'Format-LdoTerraformCode',
         'Get-LdoTerraformFileContent', 'Set-LdoTerraformFileContent',
         'Format-LdoTerraformVariables', 'Format-LdoTerraformOutputs',
-        'Update-LdoReadmeWithTerraformDocs'
+        'Set-LdoReadmeHeader', 'Update-LdoReadmeWithTerraformDocs'
     ) {
         Get-Command $_ -ErrorAction SilentlyContinue | Should -Not -BeNullOrEmpty
+    }
+}
+
+Describe 'Set-LdoReadmeHeader' {
+    BeforeAll {
+        $dir = Join-Path ([System.IO.Path]::GetTempPath()) ("ldo-readme-" + [guid]::NewGuid())
+        New-Item -ItemType Directory -Path $dir | Out-Null
+        $readme = Join-Path $dir 'README.md'
+    }
+    AfterAll { Remove-Item $dir -Recurse -Force -ErrorAction SilentlyContinue }
+
+    It 'writes the header above the terraform-docs markers' {
+        Set-LdoReadmeHeader -Header '# My Module' -ReadmeFile $readme
+        $content = Get-Content -Raw -LiteralPath $readme
+        $content        | Should -Match '# My Module'
+        $content.IndexOf('# My Module') | Should -BeLessThan $content.IndexOf('<!-- BEGIN_TF_DOCS -->')
+        $content        | Should -Match '<!-- BEGIN_TF_DOCS -->'
+        $content        | Should -Match '<!-- END_TF_DOCS -->'
+    }
+
+    It 'writes markers only when the header is empty' {
+        Set-LdoReadmeHeader -Header '' -ReadmeFile $readme
+        $content = Get-Content -Raw -LiteralPath $readme
+        $content.TrimStart() | Should -Match '^<!-- BEGIN_TF_DOCS -->'
+    }
+}
+
+Describe 'Update-LdoReadmeWithTerraformDocs' {
+    It 'throws when the code path does not exist' {
+        { Update-LdoReadmeWithTerraformDocs -CodePath (Join-Path ([System.IO.Path]::GetTempPath()) ([guid]::NewGuid())) } |
+            Should -Throw
+    }
+
+    It 'throws when the header file is supplied but missing' {
+        { Update-LdoReadmeWithTerraformDocs -CodePath $PSScriptRoot -ReadmeHeaderFile (Join-Path ([System.IO.Path]::GetTempPath()) "$([guid]::NewGuid()).md") } |
+            Should -Throw
     }
 }
 
