@@ -6,8 +6,9 @@ function Install-LdoTfLint {
         Installs the TFLint CLI.
 
     .DESCRIPTION
-        Installs TFLint via Chocolatey on Windows or Homebrew on Linux and macOS, then verifies
-        the tflint command is available.
+        Installs TFLint with Chocolatey on Windows, the official install script on Linux, and
+        Homebrew on macOS, then verifies the tflint command is available. TFLint is not a
+        Homebrew formula on Linux, so the official script is used there.
 
     .EXAMPLE
         Install-LdoTfLint
@@ -19,16 +20,23 @@ function Install-LdoTfLint {
     [OutputType([void])]
     param()
 
-    $os = Get-LdoOperatingSystem
+    $os = (Get-LdoOperatingSystem).ToLower()
 
-    if ($os.ToLower() -eq 'windows') {
+    if ($os -eq 'windows') {
         Assert-LdoChocoPath
         Write-LdoLog -Level INFO -Message 'Installing TFLint via Chocolatey on Windows.'
         choco install tflint -y
     }
+    elseif ($os -eq 'linux') {
+        # tflint is not in Homebrew core; use the maintainers' official install script. curl is
+        # invoked through bash because in PowerShell "curl" is an alias for Invoke-WebRequest.
+        Write-LdoLog -Level INFO -Message 'Installing TFLint via the official install script.'
+        bash -c 'curl -fsSL https://raw.githubusercontent.com/terraform-linters/tflint/master/install_linux.sh | bash'
+        Assert-LdoLastExitCode -Operation 'tflint install script'
+    }
     else {
         Assert-LdoHomebrewPath
-        Write-LdoLog -Level INFO -Message 'Installing TFLint via Homebrew.'
+        Write-LdoLog -Level INFO -Message 'Installing TFLint via Homebrew on macOS.'
         brew install tflint
     }
 
