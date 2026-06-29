@@ -94,7 +94,9 @@ function Invoke-LdoTrivy {
 
     $ignoreFile = $null
     try {
-        if ($TrivySkipChecks.Count -gt 0) {
+        # Wrap in @() so a $null (which a splatted empty array binds to) is treated as empty
+        # rather than tripping .Count under Set-StrictMode.
+        if (@($TrivySkipChecks).Count -gt 0) {
             # Specific check ids are skipped via a .trivyignore file; trivy no longer takes a
             # --skip-policy flag for this.
             $ignoreFile = New-TemporaryFile
