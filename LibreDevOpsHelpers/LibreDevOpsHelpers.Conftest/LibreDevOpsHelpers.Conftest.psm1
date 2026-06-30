@@ -206,9 +206,10 @@ function Invoke-LdoConftest {
     Write-LdoLog -Level INFO -Message "Executing Conftest: conftest $($conftestArgs -join ' ')"
 
     # Capture the output so it can be re-shown in the end-of-run findings summary, and print it.
+    # Strip ANSI colour codes so the stored text is clean and matches reliably.
     $report = & conftest @conftestArgs 2>&1
     $code = $LASTEXITCODE
-    $reportText = ($report | Out-String).TrimEnd()
+    $reportText = (($report | Out-String) -replace '\x1b\[[0-9;]*m', '').TrimEnd()
     Write-Host $reportText
 
     if ($code -eq 0) {

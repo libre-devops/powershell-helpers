@@ -156,7 +156,7 @@ function Invoke-LdoTrivy {
         Write-LdoLog -Level INFO -Message "Trivy report (display $DisplaySeverity): trivy $($baseArgs -join ' ')"
         # Capture the report so it can be re-shown in the end-of-run findings summary, and print it.
         $report = & trivy @baseArgs --severity $DisplaySeverity --exit-code 0 --quiet 2>&1
-        $reportText = ($report | Out-String).TrimEnd()
+        $reportText = (($report | Out-String) -replace '\x1b\[[0-9;]*m', '').TrimEnd()
         Write-Host $reportText
 
         & trivy @baseArgs --severity $Severity --exit-code "$ExitCode" --quiet *> $null

@@ -74,6 +74,14 @@ deny contains msg if {
                 Should -Not -Throw
         }
 
+        It 'records a WARN finding (not PASS) for warn-only results' {
+            Clear-LdoFinding
+            Invoke-LdoConftest -PlanJsonPath $plan -PolicyPath (Join-Path $dir 'policies') -Namespace 'libredevops.test.warnonly'
+            $f = @(Get-LdoFinding | Where-Object { $_.Tool -eq 'conftest' })
+            $f.Count | Should -Be 1
+            $f[0].Status | Should -Be 'WARN'
+        }
+
         It 'throws when only warn rules fire and -FailOnWarn is set' {
             { Invoke-LdoConftest -PlanJsonPath $plan -PolicyPath (Join-Path $dir 'policies') -Namespace 'libredevops.test.warnonly' -FailOnWarn } |
                 Should -Throw

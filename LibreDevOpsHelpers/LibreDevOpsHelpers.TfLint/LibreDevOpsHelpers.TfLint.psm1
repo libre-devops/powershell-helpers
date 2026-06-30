@@ -164,7 +164,7 @@ function Invoke-LdoTfLint {
     # Capture the lint output so it can be re-shown in the end-of-run findings summary, and print it.
     $report = & tflint @lintArgs 2>&1
     $code = $LASTEXITCODE
-    $reportText = ($report | Out-String).TrimEnd()
+    $reportText = (($report | Out-String) -replace '\x1b\[[0-9;]*m', '').TrimEnd()
     Write-Host $reportText
 
     if ($code -eq 0) {
