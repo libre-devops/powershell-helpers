@@ -42,8 +42,9 @@ function Invoke-LdoTrivy {
         Runs a Trivy configuration scan against a folder.
 
     .DESCRIPTION
-        Runs 'trivy config' over a code path, failing on findings at or above the chosen
-        severity. Throws on findings unless -SoftFail is set.
+        Runs 'trivy config' over a code path in two passes: a report pass that lists findings at
+        every -DisplaySeverity (so MEDIUM/LOW stay visible) and never fails, then a gate pass that
+        throws only on findings at the -Severity levels. Use -SoftFail to warn instead of throw.
 
         Exceptions are sourced, in order of precedence: an explicit -IgnoreFile; a committed
         ignore file in the code path (.trivyignore.yaml, .trivyignore.yml, or .trivyignore); or
@@ -64,7 +65,12 @@ function Invoke-LdoTrivy {
         Explicit path to a Trivy ignore file. Overrides the committed-file auto-detection.
 
     .PARAMETER Severity
-        Comma-separated severities that fail the scan. Defaults to HIGH,CRITICAL.
+        Comma-separated severities that fail (gate) the scan. Defaults to HIGH,CRITICAL.
+
+    .PARAMETER DisplaySeverity
+        Comma-separated severities listed in the report pass, regardless of what gates the build.
+        Defaults to CRITICAL,HIGH,MEDIUM,LOW so lower-severity findings stay visible. (Trivy has no
+        INFO level; its scale is UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL.)
 
     .PARAMETER ExitCode
         Exit code Trivy returns when matching findings are present. Defaults to 1.
@@ -91,6 +97,7 @@ function Invoke-LdoTrivy {
         [string[]]$TrivySkipChecks = @(),
         [string]$IgnoreFile = '',
         [string]$Severity = 'HIGH,CRITICAL',
+        [string]$DisplaySeverity = 'CRITICAL,HIGH,MEDIUM,LOW',
         [int]$ExitCode = 1,
         [switch]$SoftFail,
         [string[]]$ExtraArgs = @()
@@ -99,10 +106,6 @@ function Invoke-LdoTrivy {
     if (-not (Test-Path $CodePath)) {
         throw "Code path not found: $CodePath"
     }
-
-    # 'trivy config' fails with the chosen exit code only for findings at or above -Severity.
-    # --quiet keeps the progress bar and log noise out of the output (the report still prints).
-    $trivyArgs = @('config', $CodePath, '--severity', $Severity, '--exit-code', "$ExitCode", '--quiet')
 
     $tempIgnore = $null
     try {
@@ -140,25 +143,30 @@ function Invoke-LdoTrivy {
             }
         }
 
+        $baseArgs = @('config', $CodePath)
         if ($resolvedIgnore) {
-            $trivyArgs += @('--ignorefile', $resolvedIgnore)
+            $baseArgs += @('--ignorefile', $resolvedIgnore)
         }
+        $baseArgs += $ExtraArgs
 
-        $trivyArgs += $ExtraArgs
+        # Two passes. The first reports findings at every -DisplaySeverity so MEDIUM/LOW are
+        # visible (and never fails: --exit-code 0). The second gates the build, returning a
+        # non-zero exit code only for findings at the -Severity levels; its output is discarded
+        # because the report above already showed everything. --quiet keeps the progress noise out.
+        Write-LdoLog -Level INFO -Message "Trivy report (display $DisplaySeverity): trivy $($baseArgs -join ' ')"
+        & trivy @baseArgs --severity $DisplaySeverity --exit-code 0 --quiet
 
-        Write-LdoLog -Level INFO -Message "Executing Trivy: trivy $($trivyArgs -join ' ')"
-
-        & trivy @trivyArgs
+        & trivy @baseArgs --severity $Severity --exit-code "$ExitCode" --quiet *> $null
         $code = $LASTEXITCODE
 
         if ($code -eq 0) {
-            Write-LdoLog -Level SUCCESS -Message "Trivy completed with no findings at or above $Severity."
+            Write-LdoLog -Level SUCCESS -Message "Trivy completed with no findings at or above $Severity (lower-severity findings, if any, are listed above)."
         }
         elseif ($SoftFail) {
-            Write-LdoLog -Level WARN -Message "Trivy found issues (exit $code); continuing because -SoftFail."
+            Write-LdoLog -Level WARN -Message "Trivy found $Severity issues (exit $code); continuing because -SoftFail."
         }
         else {
-            throw "Trivy failed (exit $code)."
+            throw "Trivy failed on $Severity findings (exit $code)."
         }
     }
     finally {
