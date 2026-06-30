@@ -64,6 +64,36 @@ variable "alpha" {
         $sorted = Format-LdoTerraformVariables -VariablesContent $content
         $sorted.IndexOf('"alpha"') | Should -BeLessThan $sorted.IndexOf('"zebra"')
     }
+
+    It 'keeps a comment above a variable with that variable when sorting' {
+        $content = @'
+# zebra is the last animal alphabetically.
+variable "zebra" {
+  type = string
+}
+
+# alpha is the first.
+variable "alpha" {
+  type = string
+}
+'@
+        $sorted = Format-LdoTerraformVariables -VariablesContent $content
+        $sorted | Should -Match 'zebra is the last animal'
+        $sorted | Should -Match 'alpha is the first'
+        $sorted.IndexOf('alpha is the first') | Should -BeLessThan $sorted.IndexOf('variable "alpha"')
+        $sorted.IndexOf('variable "alpha"')   | Should -BeLessThan $sorted.IndexOf('zebra is the last animal')
+    }
+
+    It 'does not treat the word variable inside a description string as a new block' {
+        $content = @'
+variable "only" {
+  description = "this references variable \"trap\" in its text"
+  type        = string
+}
+'@
+        $sorted = Format-LdoTerraformVariables -VariablesContent $content
+        ([regex]::Matches($sorted, '(?m)^variable\s')).Count | Should -Be 1
+    }
 }
 
 Describe 'Format-LdoTerraformOutputs' {
@@ -79,6 +109,23 @@ output "first" {
 '@
         $sorted = Format-LdoTerraformOutputs -OutputsContent $content
         $sorted.IndexOf('"first"') | Should -BeLessThan $sorted.IndexOf('"second"')
+    }
+
+    It 'keeps a comment above an output with that output when sorting' {
+        $content = @'
+# second comes after first.
+output "second" {
+  value = 2
+}
+
+# first comes before second.
+output "first" {
+  value = 1
+}
+'@
+        $sorted = Format-LdoTerraformOutputs -OutputsContent $content
+        $sorted.IndexOf('first comes before second') | Should -BeLessThan $sorted.IndexOf('output "first"')
+        $sorted.IndexOf('output "first"')            | Should -BeLessThan $sorted.IndexOf('second comes after first')
     }
 }
 

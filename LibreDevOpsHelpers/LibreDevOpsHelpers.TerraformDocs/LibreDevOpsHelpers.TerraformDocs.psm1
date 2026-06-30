@@ -121,9 +121,13 @@ function Format-LdoTerraformVariables {
     [OutputType([string])]
     param([Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$VariablesContent)
 
-    $pattern = 'variable\s+"[^"]+"\s+\{[\s\S]*?\n\}'
+    # Capture any comment lines (# or // line comments, or a /* */ block) directly above a
+    # declaration so a variable's documentation sorts and moves with it rather than being dropped.
+    # The declaration is anchored at line start (multiline) so the word "variable" inside a comment
+    # or a description string is never mistaken for the start of a block.
+    $pattern = '(?m)(?:^[ \t]*(?:#|//).*\r?\n|^[ \t]*/\*[\s\S]*?\*/[ \t]*\r?\n)*^variable\s+"[^"]+"\s+\{[\s\S]*?\n\}'
     $blocks = [regex]::Matches($VariablesContent, $pattern) | ForEach-Object { $_.Value }
-    $sorted = $blocks | Sort-Object { ([regex]::Match($_, 'variable\s+"([^"]+)"')).Groups[1].Value }
+    $sorted = $blocks | Sort-Object { ([regex]::Match($_, '(?m)^variable\s+"([^"]+)"')).Groups[1].Value }
     return ($sorted -join "`n`n")
 }
 
@@ -150,9 +154,13 @@ function Format-LdoTerraformOutputs {
     [OutputType([string])]
     param([Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$OutputsContent)
 
-    $pattern = 'output\s+"[^"]+"\s+\{[\s\S]*?\n\}'
+    # Capture any comment lines (# or // line comments, or a /* */ block) directly above a
+    # declaration so an output's documentation sorts and moves with it rather than being dropped.
+    # The declaration is anchored at line start (multiline) so the word "output" inside a comment
+    # or a description string is never mistaken for the start of a block.
+    $pattern = '(?m)(?:^[ \t]*(?:#|//).*\r?\n|^[ \t]*/\*[\s\S]*?\*/[ \t]*\r?\n)*^output\s+"[^"]+"\s+\{[\s\S]*?\n\}'
     $blocks = [regex]::Matches($OutputsContent, $pattern) | ForEach-Object { $_.Value }
-    $sorted = $blocks | Sort-Object { ([regex]::Match($_, 'output\s+"([^"]+)"')).Groups[1].Value }
+    $sorted = $blocks | Sort-Object { ([regex]::Match($_, '(?m)^output\s+"([^"]+)"')).Groups[1].Value }
     return ($sorted -join "`n`n")
 }
 
