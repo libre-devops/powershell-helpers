@@ -6,34 +6,83 @@ function Install-LdoTrivy {
         Installs the Trivy CLI.
 
     .DESCRIPTION
-        Installs Trivy via Chocolatey on Windows or Homebrew on Linux and macOS, then verifies
-        the trivy command is available.
+        Installs Trivy with Chocolatey on Windows. On Linux and macOS it downloads the official
+        release binary from GitHub (the version defaults to 'latest', resolved at runtime), which is
+        far more reliable on ephemeral CI runners than the Homebrew tap (a brew install can break the
+        pipe mid-download). A specific version can be requested.
+
+    .PARAMETER Version
+        Trivy version to install: 'latest' (default) or a specific tag like '0.69.3' / 'v0.69.3'.
 
     .EXAMPLE
         Install-LdoTrivy
+
+    .EXAMPLE
+        Install-LdoTrivy -Version 0.69.3
 
     .OUTPUTS
         None
     #>
     [CmdletBinding()]
     [OutputType([void])]
-    param()
+    param(
+        [string]$Version = 'latest'
+    )
 
-    $os = Get-LdoOperatingSystem
+    $os = (Get-LdoOperatingSystem).ToLower()
 
-    if ($os.ToLower() -eq 'windows') {
+    if ($os -eq 'windows') {
         Assert-LdoChocoPath
         Write-LdoLog -Level INFO -Message 'Installing Trivy via Chocolatey on Windows.'
         choco install trivy -y
+        Assert-LdoCommand -Name @('trivy')
+        Write-LdoLog -Level SUCCESS -Message 'Trivy installed.'
+        return
+    }
+
+    # Resolve 'latest' to a concrete tag by following the releases/latest redirect (no API token,
+    # no rate-limit concern). curl is run through bash because in PowerShell "curl" is an alias.
+    if ($Version -eq 'latest') {
+        $effectiveUrl = (bash -c "curl -fsSL -o /dev/null -w '%{url_effective}' https://github.com/aquasecurity/trivy/releases/latest").Trim()
+        Assert-LdoLastExitCode -Operation 'resolve latest trivy release'
+        $tag = ($effectiveUrl.TrimEnd('/') -split '/')[-1]
     }
     else {
-        Assert-LdoHomebrewPath
-        Write-LdoLog -Level INFO -Message 'Installing Trivy via Homebrew.'
-        brew install aquasecurity/trivy/trivy
+        $tag = if ($Version.StartsWith('v')) { $Version } else { "v$Version" }
+    }
+    $bareVersion = $tag.TrimStart('v')
+
+    # Trivy assets are named like trivy_0.69.3_Linux-64bit.tar.gz / Linux-ARM64 / macOS-64bit.
+    $platform = if ($os -eq 'macos') { 'macOS' } else { 'Linux' }
+    $arch = if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq [System.Runtime.InteropServices.Architecture]::Arm64) { 'ARM64' } else { '64bit' }
+    $url = "https://github.com/aquasecurity/trivy/releases/download/$tag/trivy_${bareVersion}_${platform}-${arch}.tar.gz"
+
+    $work = Join-Path ([System.IO.Path]::GetTempPath()) ("ldo-trivy-" + [guid]::NewGuid())
+    New-Item -ItemType Directory -Path $work | Out-Null
+    try {
+        Write-LdoLog -Level INFO -Message "Downloading Trivy $tag from $url"
+        $tar = Join-Path $work 'trivy.tar.gz'
+        Invoke-WebRequest -Uri $url -OutFile $tar
+        & tar -xzf $tar -C $work
+        Assert-LdoLastExitCode -Operation 'extract trivy archive'
+
+        $binary = Join-Path $work 'trivy'
+        & chmod '+x' $binary
+        $dest = '/usr/local/bin/trivy'
+        try {
+            Move-Item -Path $binary -Destination $dest -Force -ErrorAction Stop
+        }
+        catch {
+            bash -c "sudo mv '$binary' '$dest'"
+            Assert-LdoLastExitCode -Operation 'install trivy to /usr/local/bin'
+        }
+    }
+    finally {
+        Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue
     }
 
     Assert-LdoCommand -Name @('trivy')
-    Write-LdoLog -Level SUCCESS -Message 'Trivy installed.'
+    Write-LdoLog -Level SUCCESS -Message "Trivy $tag installed."
 }
 
 function Invoke-LdoTrivy {
