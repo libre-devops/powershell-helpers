@@ -43,14 +43,25 @@ function Invoke-LdoTrivy {
 
     .DESCRIPTION
         Runs 'trivy config' over a code path, failing on findings at or above the chosen
-        severity. Checks to skip are written to a temporary ignore file. Throws on findings
-        unless -SoftFail is set.
+        severity. Throws on findings unless -SoftFail is set.
+
+        Exceptions are sourced, in order of precedence: an explicit -IgnoreFile; a committed
+        ignore file in the code path (.trivyignore.yaml, .trivyignore.yml, or .trivyignore); or
+        a temporary file built from -TrivySkipChecks. A committed .trivyignore.yaml is the Libre
+        DevOps convention, since it records the id, the affected paths, and a statement (the
+        justification) for each waiver. Trivy does not auto-discover .trivyignore.yaml, so the
+        resolved path is always passed with --ignorefile.
 
     .PARAMETER CodePath
-        Folder to scan.
+        Folder to scan. A .trivyignore.yaml (or .yml / .trivyignore) in this folder is picked
+        up automatically.
 
     .PARAMETER TrivySkipChecks
-        Check ids to ignore (written to a temporary .trivyignore file).
+        Check ids to ignore, written to a temporary ignore file. Used only when neither
+        -IgnoreFile nor a committed ignore file is present; otherwise it is logged and ignored.
+
+    .PARAMETER IgnoreFile
+        Explicit path to a Trivy ignore file. Overrides the committed-file auto-detection.
 
     .PARAMETER Severity
         Comma-separated severities that fail the scan. Defaults to HIGH,CRITICAL.
@@ -78,6 +89,7 @@ function Invoke-LdoTrivy {
     param(
         [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$CodePath,
         [string[]]$TrivySkipChecks = @(),
+        [string]$IgnoreFile = '',
         [string]$Severity = 'HIGH,CRITICAL',
         [int]$ExitCode = 1,
         [switch]$SoftFail,
@@ -92,16 +104,44 @@ function Invoke-LdoTrivy {
     # --quiet keeps the progress bar and log noise out of the output (the report still prints).
     $trivyArgs = @('config', $CodePath, '--severity', $Severity, '--exit-code', "$ExitCode", '--quiet')
 
-    $ignoreFile = $null
+    $tempIgnore = $null
     try {
+        # Resolve the ignore file: explicit -IgnoreFile, then a committed file in the code path,
+        # then a temporary file built from -TrivySkipChecks. Trivy does not auto-discover
+        # .trivyignore.yaml, so whatever is resolved is passed explicitly with --ignorefile.
+        $resolvedIgnore = $null
+        if ($IgnoreFile) {
+            if (-not (Test-Path $IgnoreFile)) {
+                throw "Trivy ignore file not found: $IgnoreFile"
+            }
+            $resolvedIgnore = (Resolve-Path -LiteralPath $IgnoreFile).Path
+        }
+        else {
+            foreach ($candidate in @('.trivyignore.yaml', '.trivyignore.yml', '.trivyignore')) {
+                $candidatePath = Join-Path $CodePath $candidate
+                if (Test-Path $candidatePath) {
+                    $resolvedIgnore = (Resolve-Path -LiteralPath $candidatePath).Path
+                    Write-LdoLog -Level INFO -Message "Using committed Trivy ignore file: $resolvedIgnore"
+                    break
+                }
+            }
+        }
+
         # Wrap in @() so a $null (which a splatted empty array binds to) is treated as empty
         # rather than tripping .Count under Set-StrictMode.
         if (@($TrivySkipChecks).Count -gt 0) {
-            # Specific check ids are skipped via a .trivyignore file; trivy no longer takes a
-            # --skip-policy flag for this.
-            $ignoreFile = New-TemporaryFile
-            Set-Content -LiteralPath $ignoreFile -Value ($TrivySkipChecks -join "`n") -Encoding utf8
-            $trivyArgs += @('--ignorefile', $ignoreFile.FullName)
+            if ($resolvedIgnore) {
+                Write-LdoLog -Level WARN -Message "Ignoring -TrivySkipChecks because an ignore file is in effect ($resolvedIgnore)."
+            }
+            else {
+                $tempIgnore = New-TemporaryFile
+                Set-Content -LiteralPath $tempIgnore -Value ($TrivySkipChecks -join "`n") -Encoding utf8
+                $resolvedIgnore = $tempIgnore.FullName
+            }
+        }
+
+        if ($resolvedIgnore) {
+            $trivyArgs += @('--ignorefile', $resolvedIgnore)
         }
 
         $trivyArgs += $ExtraArgs
@@ -122,8 +162,8 @@ function Invoke-LdoTrivy {
         }
     }
     finally {
-        if ($ignoreFile -and (Test-Path $ignoreFile)) {
-            Remove-Item $ignoreFile -Force -ErrorAction SilentlyContinue
+        if ($tempIgnore -and (Test-Path $tempIgnore)) {
+            Remove-Item $tempIgnore -Force -ErrorAction SilentlyContinue
         }
     }
 }
