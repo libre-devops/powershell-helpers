@@ -12,7 +12,7 @@
     RootModule = '.\LibreDevOpsHelpers.psm1'
 
     # Version number of this module.
-    ModuleVersion = '2.2.7'
+    ModuleVersion = '2.2.8'
 
     # Supported PSEditions
     # CompatiblePSEditions = @()
@@ -76,6 +76,7 @@
         'LibreDevOpsHelpers.AzureStorage/LibreDevOpsHelpers.AzureStorage.psm1',
         'LibreDevOpsHelpers.Checkov/LibreDevOpsHelpers.Checkov.psm1',
         'LibreDevOpsHelpers.Choco/LibreDevOpsHelpers.Choco.psm1',
+        'LibreDevOpsHelpers.Conftest/LibreDevOpsHelpers.Conftest.psm1',
         'LibreDevOpsHelpers.Defender/LibreDevOpsHelpers.Defender.psm1',
         'LibreDevOpsHelpers.Docker/LibreDevOpsHelpers.Docker.psm1',
         'LibreDevOpsHelpers.Github/LibreDevOpsHelpers.Github.psm1',
@@ -108,6 +109,7 @@
         'Add-LdoUvPackage',
         'Assert-LdoChocoPath',
         'Assert-LdoCommand',
+        'Assert-LdoConftest',
         'Assert-LdoDockerExists',
         'Assert-LdoEnvironmentVariable',
         'Assert-LdoHomebrewPath',
@@ -162,6 +164,7 @@
         'Initialize-LdoVenv',
         'Install-LdoAzureCli',
         'Install-LdoCheckov',
+        'Install-LdoConftest',
         'Install-LdoGlab',
         'Install-LdoTenv',
         'Install-LdoTfLint',
@@ -171,6 +174,7 @@
         'Invoke-LdoAzureDevOpsTokenReplacement',
         'Invoke-LdoAzureDevOpsTokenReplacementRevert',
         'Invoke-LdoCheckov',
+        'Invoke-LdoConftest',
         'Invoke-LdoDefenderAvScan',
         'Invoke-LdoDefenderDeviceIsolation',
         'Invoke-LdoDefenderHuntingQuery',
@@ -279,7 +283,7 @@
             IconUri = 'https://libredevops.org/favicon.ico'
 
             Tags = 'terraform', 'devops', 'azure', 'checkov', 'trivy', 'tflint', 'helpers'
-            ReleaseNotes = 'v2.2.7: Invoke-LdoTrivy now reports findings at all severities (new -DisplaySeverity, default CRITICAL,HIGH,MEDIUM,LOW) in a non-failing pass, then gates the build only on -Severity (default HIGH,CRITICAL), so MEDIUM/LOW stay visible without failing the build. v2.2.6: Invoke-LdoTrivy now picks up a committed ignore file in the code path (.trivyignore.yaml, .trivyignore.yml, or .trivyignore) and passes it with --ignorefile (Trivy does not auto-discover .trivyignore.yaml), adds an -IgnoreFile parameter to point at one explicitly, and falls back to -TrivySkipChecks only when no ignore file is present. This is the Libre DevOps convention for recording scan waivers with a justification. v2.2.5: Format-LdoTerraformVariables and Format-LdoTerraformOutputs now keep a comment block sitting directly above a variable or output with that block when sorting (previously such comments were dropped), and anchor the declaration at line start so the word variable or output inside a description string is not mistaken for a new block. v2.2.4: Invoke-LdoTrivy guards TrivySkipChecks.Count against a null value (a splatted empty array). v2.2.3: Install-LdoTfLint downloads the official release binary, resolving latest at runtime (the install script is being retired). v2.2.2: fix Install-LdoTfLint on Linux (tflint is not a Homebrew formula; use the official install script). v2.2.1: fix Invoke-LdoTrivy for trivy 0.71+ (drop the removed --no-progress flag; gate on --severity HIGH,CRITICAL with --exit-code 1; skip checks via a temporary .trivyignore). v2.2.0: add the TfLint module (Install-LdoTfLint, Invoke-LdoTfLint); upgrade Write-LdoLog to the full OpenTelemetry log record (severity_number, service.name, trace_id/span_id/correlation_id) with TRACE and FATAL levels and a Set-LdoTraceContext trace context; add New-LdoTraceId/New-LdoSpanId/New-LdoCorrelationId/New-LdoHexId; rework Update-LdoReadmeWithTerraformDocs to use a HEADER.md and terraform-docs inject markers, with a new Set-LdoReadmeHeader. See README.md.'
+            ReleaseNotes = 'v2.2.8: add the Conftest module (Install-LdoConftest downloads the official release binary resolving latest at runtime, Assert-LdoConftest, Invoke-LdoConftest runs conftest test over a Terraform plan JSON against a Rego policy directory; warn rules are informational and do not fail unless -FailOnWarn). v2.2.7: Invoke-LdoTrivy now reports findings at all severities (new -DisplaySeverity, default CRITICAL,HIGH,MEDIUM,LOW) in a non-failing pass, then gates the build only on -Severity (default HIGH,CRITICAL), so MEDIUM/LOW stay visible without failing the build. v2.2.6: Invoke-LdoTrivy now picks up a committed ignore file in the code path (.trivyignore.yaml, .trivyignore.yml, or .trivyignore) and passes it with --ignorefile (Trivy does not auto-discover .trivyignore.yaml), adds an -IgnoreFile parameter to point at one explicitly, and falls back to -TrivySkipChecks only when no ignore file is present. This is the Libre DevOps convention for recording scan waivers with a justification. v2.2.5: Format-LdoTerraformVariables and Format-LdoTerraformOutputs now keep a comment block sitting directly above a variable or output with that block when sorting (previously such comments were dropped), and anchor the declaration at line start so the word variable or output inside a description string is not mistaken for a new block. v2.2.4: Invoke-LdoTrivy guards TrivySkipChecks.Count against a null value (a splatted empty array). v2.2.3: Install-LdoTfLint downloads the official release binary, resolving latest at runtime (the install script is being retired). v2.2.2: fix Install-LdoTfLint on Linux (tflint is not a Homebrew formula; use the official install script). v2.2.1: fix Invoke-LdoTrivy for trivy 0.71+ (drop the removed --no-progress flag; gate on --severity HIGH,CRITICAL with --exit-code 1; skip checks via a temporary .trivyignore). v2.2.0: add the TfLint module (Install-LdoTfLint, Invoke-LdoTfLint); upgrade Write-LdoLog to the full OpenTelemetry log record (severity_number, service.name, trace_id/span_id/correlation_id) with TRACE and FATAL levels and a Set-LdoTraceContext trace context; add New-LdoTraceId/New-LdoSpanId/New-LdoCorrelationId/New-LdoHexId; rework Update-LdoReadmeWithTerraformDocs to use a HEADER.md and terraform-docs inject markers, with a new Set-LdoReadmeHeader. See README.md.'
         }
     }
 }
