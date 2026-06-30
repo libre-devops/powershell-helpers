@@ -161,16 +161,22 @@ function Invoke-LdoTfLint {
 
     Write-LdoLog -Level INFO -Message "Executing TFLint: tflint $($lintArgs -join ' ')"
 
-    & tflint @lintArgs
+    # Capture the lint output so it can be re-shown in the end-of-run findings summary, and print it.
+    $report = & tflint @lintArgs 2>&1
     $code = $LASTEXITCODE
+    $reportText = ($report | Out-String).TrimEnd()
+    Write-Host $reportText
 
     if ($code -eq 0) {
         Write-LdoLog -Level SUCCESS -Message 'TFLint completed with no findings.'
+        Add-LdoFinding -Tool 'tflint' -Target $CodePath -Status 'PASS' -Summary 'no findings' -Detail $reportText
     }
     elseif ($SoftFail) {
         Write-LdoLog -Level WARN -Message "TFLint found issues (exit $code); continuing because -SoftFail."
+        Add-LdoFinding -Tool 'tflint' -Target $CodePath -Status 'WARN' -Summary "findings (soft-fail, exit $code)" -Detail $reportText
     }
     else {
+        Add-LdoFinding -Tool 'tflint' -Target $CodePath -Status 'FAIL' -Summary "findings (exit $code)" -Detail $reportText
         throw "TFLint failed (exit $code)."
     }
 }

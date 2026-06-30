@@ -154,18 +154,24 @@ function Invoke-LdoTrivy {
         # non-zero exit code only for findings at the -Severity levels; its output is discarded
         # because the report above already showed everything. --quiet keeps the progress noise out.
         Write-LdoLog -Level INFO -Message "Trivy report (display $DisplaySeverity): trivy $($baseArgs -join ' ')"
-        & trivy @baseArgs --severity $DisplaySeverity --exit-code 0 --quiet
+        # Capture the report so it can be re-shown in the end-of-run findings summary, and print it.
+        $report = & trivy @baseArgs --severity $DisplaySeverity --exit-code 0 --quiet 2>&1
+        $reportText = ($report | Out-String).TrimEnd()
+        Write-Host $reportText
 
         & trivy @baseArgs --severity $Severity --exit-code "$ExitCode" --quiet *> $null
         $code = $LASTEXITCODE
 
         if ($code -eq 0) {
             Write-LdoLog -Level SUCCESS -Message "Trivy completed with no findings at or above $Severity (lower-severity findings, if any, are listed above)."
+            Add-LdoFinding -Tool 'trivy' -Target $CodePath -Status 'PASS' -Summary "no findings at or above $Severity" -Detail $reportText
         }
         elseif ($SoftFail) {
             Write-LdoLog -Level WARN -Message "Trivy found $Severity issues (exit $code); continuing because -SoftFail."
+            Add-LdoFinding -Tool 'trivy' -Target $CodePath -Status 'WARN' -Summary "$Severity findings (soft-fail, exit $code)" -Detail $reportText
         }
         else {
+            Add-LdoFinding -Tool 'trivy' -Target $CodePath -Status 'FAIL' -Summary "$Severity findings (exit $code)" -Detail $reportText
             throw "Trivy failed on $Severity findings (exit $code)."
         }
     }

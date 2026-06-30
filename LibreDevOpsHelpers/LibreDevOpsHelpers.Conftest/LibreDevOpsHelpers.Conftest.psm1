@@ -205,16 +205,29 @@ function Invoke-LdoConftest {
 
     Write-LdoLog -Level INFO -Message "Executing Conftest: conftest $($conftestArgs -join ' ')"
 
-    & conftest @conftestArgs
+    # Capture the output so it can be re-shown in the end-of-run findings summary, and print it.
+    $report = & conftest @conftestArgs 2>&1
     $code = $LASTEXITCODE
+    $reportText = ($report | Out-String).TrimEnd()
+    Write-Host $reportText
 
     if ($code -eq 0) {
+        # A clean exit can still carry informational warnings (warn rules do not fail by default).
+        $hasWarn = $reportText -match '(?m)^WARN '
         Write-LdoLog -Level SUCCESS -Message 'Conftest completed with no failures (warnings, if any, are listed above).'
+        if ($hasWarn) {
+            Add-LdoFinding -Tool 'conftest' -Target $PlanJsonPath -Status 'WARN' -Summary 'policy warnings (informational)' -Detail $reportText
+        }
+        else {
+            Add-LdoFinding -Tool 'conftest' -Target $PlanJsonPath -Status 'PASS' -Summary 'no policy findings' -Detail $reportText
+        }
     }
     elseif ($SoftFail) {
         Write-LdoLog -Level WARN -Message "Conftest reported failures (exit $code); continuing because -SoftFail."
+        Add-LdoFinding -Tool 'conftest' -Target $PlanJsonPath -Status 'WARN' -Summary "failures (soft-fail, exit $code)" -Detail $reportText
     }
     else {
+        Add-LdoFinding -Tool 'conftest' -Target $PlanJsonPath -Status 'FAIL' -Summary "failures (exit $code)" -Detail $reportText
         throw "Conftest failed (exit $code)."
     }
 }
