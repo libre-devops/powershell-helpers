@@ -173,14 +173,16 @@ function Invoke-LdoConftest {
         [string[]]$ExtraArgs = @()
     )
 
-    Assert-LdoConftest
-
+    # Validate the provided paths first (deterministic, no external dependency), then assert the
+    # CLI is present, so argument errors are reported clearly even when conftest is not installed.
     if (-not (Test-Path $PlanJsonPath)) {
         throw "Plan JSON not found: $PlanJsonPath"
     }
     if (-not (Test-Path $PolicyPath)) {
         throw "Policy path not found: $PolicyPath"
     }
+
+    Assert-LdoConftest
 
     $conftestArgs = @('test', $PlanJsonPath, '--policy', $PolicyPath)
 
