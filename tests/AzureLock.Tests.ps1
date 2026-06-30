@@ -56,4 +56,29 @@ Describe 'Get-LdoResourceGroupNamesFromPlan' {
         { Get-LdoResourceGroupNamesFromPlan -PlanJsonPath (Join-Path ([System.IO.Path]::GetTempPath()) "$([guid]::NewGuid()).json") } |
             Should -Throw
     }
+
+    It 'reads resource groups from prior_state (a destroy plan)' {
+        $dir = Join-Path ([System.IO.Path]::GetTempPath()) ("ldolockd-" + [guid]::NewGuid())
+        New-Item -ItemType Directory -Path $dir | Out-Null
+        $destroyPlan = @'
+{
+  "planned_values": { "root_module": {} },
+  "prior_state": {
+    "values": {
+      "root_module": {
+        "resources": [
+          { "type": "azurerm_resource_group", "values": { "name": "rg-ldo-uks-prd-009" } }
+        ]
+      }
+    }
+  }
+}
+'@
+        $p = Join-Path $dir 'destroy.json'
+        $destroyPlan | Set-Content -LiteralPath $p
+        try {
+            @(Get-LdoResourceGroupNamesFromPlan -PlanJsonPath $p) | Should -Contain 'rg-ldo-uks-prd-009'
+        }
+        finally { Remove-Item $dir -Recurse -Force -ErrorAction SilentlyContinue }
+    }
 }

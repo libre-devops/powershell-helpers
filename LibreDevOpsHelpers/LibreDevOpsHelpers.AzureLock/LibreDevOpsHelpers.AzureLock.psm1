@@ -120,8 +120,10 @@ function Get-LdoResourceGroupNamesFromPlan {
         Returns the azurerm_resource_group names from a Terraform plan rendered to JSON.
 
     .DESCRIPTION
-        Walks planned_values (root and all child modules) for azurerm_resource_group resources and
-        returns their names. Used by the lock-dance to find which resource groups to unlock for a run.
+        Walks planned_values and prior_state (root and all child modules) for azurerm_resource_group
+        resources and returns their names. Used by the lock-dance to find which resource groups to
+        unlock for a run; prior_state is included so a destroy plan (whose planned_values is empty)
+        still yields the groups being torn down.
 
     .PARAMETER PlanJsonPath
         Path to the plan JSON (terraform show -json).
@@ -146,8 +148,13 @@ function Get-LdoResourceGroupNamesFromPlan {
     $names = [System.Collections.Generic.List[string]]::new()
 
     $stack = [System.Collections.Generic.Stack[object]]::new()
+    # planned_values covers apply (the post-apply state); prior_state covers destroy (planned_values
+    # is empty for a destroy plan, but prior_state still lists the groups being removed).
     if ($plan.PSObject.Properties.Name -contains 'planned_values' -and $plan.planned_values.PSObject.Properties.Name -contains 'root_module') {
         $stack.Push($plan.planned_values.root_module)
+    }
+    if ($plan.PSObject.Properties.Name -contains 'prior_state' -and $plan.prior_state.PSObject.Properties.Name -contains 'values' -and $plan.prior_state.values.PSObject.Properties.Name -contains 'root_module') {
+        $stack.Push($plan.prior_state.values.root_module)
     }
     while ($stack.Count -gt 0) {
         $module = $stack.Pop()
