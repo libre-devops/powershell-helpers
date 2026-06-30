@@ -144,30 +144,32 @@ function Get-LdoResourceGroupNamesFromPlan {
         throw "Plan JSON not found: $PlanJsonPath"
     }
 
-    $plan = Get-Content -Raw -LiteralPath $PlanJsonPath | ConvertFrom-Json
+    # Parse as nested hashtables so missing keys are handled with ContainsKey (no Set-StrictMode
+    # property-navigation errors on, for example, a destroy plan's empty planned_values).
+    $plan = Get-Content -Raw -LiteralPath $PlanJsonPath | ConvertFrom-Json -AsHashtable
     $names = [System.Collections.Generic.List[string]]::new()
 
     $stack = [System.Collections.Generic.Stack[object]]::new()
     # planned_values covers apply (the post-apply state); prior_state covers destroy (planned_values
     # is empty for a destroy plan, but prior_state still lists the groups being removed).
-    if ($plan.PSObject.Properties.Name -contains 'planned_values' -and $plan.planned_values.PSObject.Properties.Name -contains 'root_module') {
-        $stack.Push($plan.planned_values.root_module)
+    if ($plan.ContainsKey('planned_values') -and $plan['planned_values'].ContainsKey('root_module')) {
+        $stack.Push($plan['planned_values']['root_module'])
     }
-    if ($plan.PSObject.Properties.Name -contains 'prior_state' -and $plan.prior_state.PSObject.Properties.Name -contains 'values' -and $plan.prior_state.values.PSObject.Properties.Name -contains 'root_module') {
-        $stack.Push($plan.prior_state.values.root_module)
+    if ($plan.ContainsKey('prior_state') -and $plan['prior_state'].ContainsKey('values') -and $plan['prior_state']['values'].ContainsKey('root_module')) {
+        $stack.Push($plan['prior_state']['values']['root_module'])
     }
     while ($stack.Count -gt 0) {
         $module = $stack.Pop()
         if ($null -eq $module) { continue }
-        if ($module.PSObject.Properties.Name -contains 'resources') {
-            foreach ($r in @($module.resources)) {
-                if ($r.type -eq 'azurerm_resource_group' -and $r.values.PSObject.Properties.Name -contains 'name' -and $r.values.name) {
-                    $names.Add([string]$r.values.name)
+        if ($module.ContainsKey('resources')) {
+            foreach ($r in @($module['resources'])) {
+                if ($r['type'] -eq 'azurerm_resource_group' -and $r.ContainsKey('values') -and $r['values'].ContainsKey('name') -and $r['values']['name']) {
+                    $names.Add([string]$r['values']['name'])
                 }
             }
         }
-        if ($module.PSObject.Properties.Name -contains 'child_modules') {
-            foreach ($c in @($module.child_modules)) { $stack.Push($c) }
+        if ($module.ContainsKey('child_modules')) {
+            foreach ($c in @($module['child_modules'])) { $stack.Push($c) }
         }
     }
 
