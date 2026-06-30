@@ -24,6 +24,14 @@ function Get-LdoResourceGroupLock {
         [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$ResourceGroup
     )
 
+    # On a first apply the resource group does not exist yet, so there are no locks to capture.
+    $exists = az group exists --name $ResourceGroup
+    Assert-LdoLastExitCode -Operation "az group exists ($ResourceGroup)"
+    if ("$exists".Trim() -ne 'true') {
+        Write-LdoLog -Level DEBUG -Message "Resource group '$ResourceGroup' does not exist yet; no locks to read."
+        return @()
+    }
+
     $json = az lock list --resource-group $ResourceGroup -o json
     Assert-LdoLastExitCode -Operation "az lock list ($ResourceGroup)"
     $locks = if ([string]::IsNullOrWhiteSpace($json)) { @() } else { @($json | ConvertFrom-Json) }
