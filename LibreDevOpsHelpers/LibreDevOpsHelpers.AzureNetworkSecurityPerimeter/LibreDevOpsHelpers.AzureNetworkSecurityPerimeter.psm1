@@ -1,5 +1,30 @@
 Set-StrictMode -Version Latest
 
+function Confirm-LdoNspCliExtension {
+    <#
+    .SYNOPSIS
+        Ensures the Azure CLI 'nsp' extension (which provides `az network perimeter`) is installed.
+
+    .DESCRIPTION
+        The Network Security Perimeter commands live in the preview 'nsp' extension, which base Azure
+        CLI does not ship. On a non-interactive runner an auto-install prompt would stall, so this
+        installs it explicitly (allowing the preview) when it is not already present.
+
+    .OUTPUTS
+        None
+    #>
+    [CmdletBinding()]
+    [OutputType([void])]
+    param()
+
+    $present = az extension list --query "[?name=='nsp'].name" -o tsv 2>$null
+    if (-not $present) {
+        Write-LdoLog -Level INFO -Message "Installing the Azure CLI 'nsp' extension (required for az network perimeter)."
+        az extension add --name nsp --allow-preview true --yes 2>$null | Out-Null
+        Assert-LdoLastExitCode -Operation "az extension add nsp"
+    }
+}
+
 function Add-LdoNspCurrentIpRule {
     <#
     .SYNOPSIS
@@ -38,6 +63,8 @@ function Add-LdoNspCurrentIpRule {
         [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$ProfileName,
         [string]$RuleName = 'ldo-runner-allow'
     )
+
+    Confirm-LdoNspCliExtension
 
     $ip = Get-LdoPublicIpAddress
     Write-LdoLog -Level INFO -Message "Current public IP: $ip"
@@ -96,6 +123,8 @@ function Remove-LdoNspRule {
         [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$ProfileName,
         [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$RuleName
     )
+
+    Confirm-LdoNspCliExtension
 
     $existing = az network perimeter profile access-rule list --resource-group $ResourceGroup --perimeter-name $PerimeterName --profile-name $ProfileName --query "[?name=='$RuleName']" -o tsv 2>$null
     if (-not $existing) {
