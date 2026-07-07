@@ -4,6 +4,11 @@ Set-StrictMode -Version Latest
 # after a temporary access rule is removed. Keyed by vault name.
 $script:LdoKeyVaultStateCache = @{ }
 
+# Remembers vaults whose Add was skipped (-SoftFail, vault absent), so the paired Remove also
+# skips instead of "restoring" a locked-down default over network ACLs the run's own apply just
+# created. Keyed by vault name.
+$script:LdoKeyVaultDanceSkipped = @{ }
+
 # Probes a vault for the dance. Returns $true when the vault exists. When it does not: with
 # -SoftFail logs a WARN and returns $false (first run, the stack creates the vault; the next run
 # finds it and dances normally); without -SoftFail throws. Failures OTHER than absence always
@@ -78,17 +83,23 @@ function Add-LdoKeyVaultCurrentIpRule {
         [switch]$SoftFail
     )
 
-    if (-not (Test-LdoKeyVaultDanceTarget -ResourceGroup $ResourceGroup -KeyVaultName $KeyVaultName -SoftFail:$SoftFail)) { return }
+    if (-not (Test-LdoKeyVaultDanceTarget -ResourceGroup $ResourceGroup -KeyVaultName $KeyVaultName -SoftFail:$SoftFail)) {
+        $script:LdoKeyVaultDanceSkipped[$KeyVaultName] = $true
+        return
+    }
 
     $ip = Get-LdoPublicIpAddress
 
     if (-not $script:LdoKeyVaultStateCache.ContainsKey($KeyVaultName)) {
-        $vault = az keyvault show -g $ResourceGroup -n $KeyVaultName -o json | ConvertFrom-Json
+        # az keyvault show nests the network configuration under properties (unlike az storage
+        # account show, which is flat); the JMESPath shaping also guarantees every key exists
+        # (null when unset), which matters under Set-StrictMode.
+        $vault = az keyvault show -g $ResourceGroup -n $KeyVaultName -o json --query '{publicNetworkAccess: properties.publicNetworkAccess, defaultAction: properties.networkAcls.defaultAction, bypass: properties.networkAcls.bypass}' | ConvertFrom-Json
         Assert-LdoLastExitCode -Operation "az keyvault show ($KeyVaultName)"
         $script:LdoKeyVaultStateCache[$KeyVaultName] = @{
             PublicNetworkAccess = $vault.publicNetworkAccess
-            DefaultAction = $vault.networkAcls.defaultAction
-            Bypass = $vault.networkAcls.bypass
+            DefaultAction = $vault.defaultAction
+            Bypass = $vault.bypass
         }
     }
 
@@ -144,6 +155,12 @@ function Remove-LdoKeyVaultCurrentIpRule {
         [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$KeyVaultName,
         [switch]$SoftFail
     )
+
+    if ($script:LdoKeyVaultDanceSkipped.ContainsKey($KeyVaultName)) {
+        $script:LdoKeyVaultDanceSkipped.Remove($KeyVaultName) | Out-Null
+        Write-LdoLog -Level INFO -Message "Add skipped earlier because $KeyVaultName did not exist; leaving its network configuration exactly as the run applied it."
+        return
+    }
 
     if (-not (Test-LdoKeyVaultDanceTarget -ResourceGroup $ResourceGroup -KeyVaultName $KeyVaultName -SoftFail:$SoftFail)) { return }
 

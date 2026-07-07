@@ -2,6 +2,21 @@
 
 All notable changes to LibreDevOpsHelpers are recorded here.
 
+## 2.4.2
+
+### Fixed
+- `Add-LdoKeyVaultCurrentIpRule` crashed under `Set-StrictMode` whenever the vault existed: the
+  state capture read `publicNetworkAccess` and `networkAcls` at the top level of `az keyvault show`
+  output, but Key Vault nests them under `properties` (unlike the flat `az storage account show`).
+  The capture now shapes the object with a JMESPath `--query`, which also guarantees every key
+  exists (null when unset). Proven live against a vault that had tripped the crash in CI.
+- Paired-Remove clobber after a `-SoftFail` skip, in both the Key Vault and Storage dances: when
+  `Add` skipped because the target did not exist yet (the stack creates it), the `finally`-block
+  `Remove` found the freshly created resource, had no cached state, and "restored" the
+  locked-down fallback (public network access Disabled, default action Deny) over the network
+  configuration the run's own apply had just written. `Add` now records the skip and the paired
+  `Remove` skips too, leaving the resource exactly as the run applied it.
+
 ## 2.4.1
 
 ### Changed

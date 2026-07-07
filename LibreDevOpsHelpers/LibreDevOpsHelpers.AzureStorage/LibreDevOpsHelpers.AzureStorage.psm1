@@ -4,6 +4,11 @@ Set-StrictMode -Version Latest
 # restored after a temporary access rule is removed. Keyed by account name.
 $script:LdoStorageStateCache = @{ }
 
+# Remembers accounts whose Add was skipped (-SoftFail, account absent), so the paired Remove also
+# skips instead of "restoring" a locked-down default over network rules the run's own apply just
+# created. Keyed by account name.
+$script:LdoStorageDanceSkipped = @{ }
+
 # Probes a storage account for the dance. Returns $true when the account exists. When it does
 # not: with -SoftFail logs a WARN and returns $false (first run, the stack creates the account;
 # the next run finds it and dances normally); without -SoftFail throws. Failures OTHER than
@@ -71,7 +76,10 @@ function Add-LdoStorageCurrentIpRule {
         [switch]$SoftFail
     )
 
-    if (-not (Test-LdoStorageDanceTarget -ResourceGroup $ResourceGroup -StorageAccountName $StorageAccountName -SoftFail:$SoftFail)) { return }
+    if (-not (Test-LdoStorageDanceTarget -ResourceGroup $ResourceGroup -StorageAccountName $StorageAccountName -SoftFail:$SoftFail)) {
+        $script:LdoStorageDanceSkipped[$StorageAccountName] = $true
+        return
+    }
 
     $ip = Get-LdoPublicIpAddress
     Write-LdoLog -Level INFO -Message "Current public IP: $ip"
@@ -142,6 +150,12 @@ function Remove-LdoStorageCurrentIpRule {
         [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$StorageAccountName,
         [switch]$SoftFail
     )
+
+    if ($script:LdoStorageDanceSkipped.ContainsKey($StorageAccountName)) {
+        $script:LdoStorageDanceSkipped.Remove($StorageAccountName) | Out-Null
+        Write-LdoLog -Level INFO -Message "Add skipped earlier because $StorageAccountName did not exist; leaving its network configuration exactly as the run applied it."
+        return
+    }
 
     if (-not (Test-LdoStorageDanceTarget -ResourceGroup $ResourceGroup -StorageAccountName $StorageAccountName -SoftFail:$SoftFail)) { return }
 
