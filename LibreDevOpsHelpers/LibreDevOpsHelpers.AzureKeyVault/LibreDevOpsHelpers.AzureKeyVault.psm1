@@ -4,6 +4,42 @@ Set-StrictMode -Version Latest
 # after a temporary access rule is removed. Keyed by vault name.
 $script:LdoKeyVaultStateCache = @{ }
 
+# Probes a vault for the dance. Returns $true when the vault exists. When it does not: with
+# -SoftFail logs a WARN and returns $false (first run, the stack creates the vault; the next run
+# finds it and dances normally); without -SoftFail throws. Failures OTHER than absence always
+# throw, so auth or network problems never masquerade as a first run. Soft-deleted vaults get a
+# distinct warning: the coming apply RESURRECTS them with their previous network ACLs.
+function Test-LdoKeyVaultDanceTarget {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$ResourceGroup,
+        [Parameter(Mandatory)][string]$KeyVaultName,
+        [switch]$SoftFail
+    )
+
+    $probe = az keyvault show -g $ResourceGroup -n $KeyVaultName -o none 2>&1
+    if ($LASTEXITCODE -eq 0) { return $true }
+
+    $text = ($probe | Out-String)
+    if ($text -notmatch '(?i)notfound|could not be found|does not exist|was not found') {
+        throw "az keyvault show ($KeyVaultName) failed for a reason other than absence: $text"
+    }
+
+    if (-not $SoftFail) {
+        throw "Key Vault $KeyVaultName was not found in $ResourceGroup. Pass -SoftFail when the stack itself creates the vault (first run)."
+    }
+
+    $deleted = az keyvault list-deleted --query "[?name=='$KeyVaultName'].name" -o tsv 2>$null
+    if ($deleted) {
+        Write-LdoLog -Level WARN -Message "Key Vault $KeyVaultName is SOFT-DELETED: the coming apply will resurrect it with its previous network ACLs (this runner will not be on them). Skipping (-SoftFail)."
+    }
+    else {
+        Write-LdoLog -Level WARN -Message "Key Vault $KeyVaultName does not exist, so cannot append the runner IP; skipping (-SoftFail). The next run will find it and dance normally."
+    }
+    return $false
+}
+
 function Add-LdoKeyVaultCurrentIpRule {
     <#
     .SYNOPSIS
@@ -23,6 +59,11 @@ function Add-LdoKeyVaultCurrentIpRule {
     .PARAMETER KeyVaultName
         Name of the Key Vault.
 
+    .PARAMETER SoftFail
+        Skip (with a warning) instead of failing when the vault does not exist yet, for stacks
+        that create the vault themselves on the first run. Absence is the only condition
+        softened: any other failure still throws.
+
     .EXAMPLE
         Add-LdoKeyVaultCurrentIpRule -ResourceGroup rg-prod -KeyVaultName kv-prod
 
@@ -33,8 +74,11 @@ function Add-LdoKeyVaultCurrentIpRule {
     [OutputType([void])]
     param(
         [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$ResourceGroup,
-        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$KeyVaultName
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$KeyVaultName,
+        [switch]$SoftFail
     )
+
+    if (-not (Test-LdoKeyVaultDanceTarget -ResourceGroup $ResourceGroup -KeyVaultName $KeyVaultName -SoftFail:$SoftFail)) { return }
 
     $ip = Get-LdoPublicIpAddress
 
@@ -82,6 +126,11 @@ function Remove-LdoKeyVaultCurrentIpRule {
     .PARAMETER KeyVaultName
         Name of the Key Vault.
 
+    .PARAMETER SoftFail
+        Skip (with a warning) instead of failing when the vault does not exist, for teardown
+        paths where the stack (vault included) may already be destroyed. Absence is the only
+        condition softened: any other failure still throws.
+
     .EXAMPLE
         Remove-LdoKeyVaultCurrentIpRule -ResourceGroup rg-prod -KeyVaultName kv-prod
 
@@ -92,8 +141,11 @@ function Remove-LdoKeyVaultCurrentIpRule {
     [OutputType([void])]
     param(
         [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$ResourceGroup,
-        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$KeyVaultName
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$KeyVaultName,
+        [switch]$SoftFail
     )
+
+    if (-not (Test-LdoKeyVaultDanceTarget -ResourceGroup $ResourceGroup -KeyVaultName $KeyVaultName -SoftFail:$SoftFail)) { return }
 
     $ip = Get-LdoPublicIpAddress
 

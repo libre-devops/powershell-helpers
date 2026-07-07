@@ -2,6 +2,23 @@
 
 All notable changes to LibreDevOpsHelpers are recorded here.
 
+## 2.4.0
+
+### Added
+- `-SoftFail` on the firewall dance functions: `Add-LdoKeyVaultCurrentIpRule`,
+  `Remove-LdoKeyVaultCurrentIpRule`, `Add-LdoStorageCurrentIpRule`,
+  `Remove-LdoStorageCurrentIpRule`, and `Add-LdoNspCurrentIpRule`. Opt-in (never the default):
+  when the target resource does not exist the function logs a warning ("does not exist, so
+  cannot append the runner IP; skipping") and returns instead of failing, so a pipeline whose
+  stack creates the resource itself survives the first run and dances normally from the next
+  run onward. Absence is the ONLY condition softened: authentication, network, or any other
+  failure still throws, so real problems never masquerade as a first run.
+- The Key Vault probe distinguishes soft-deleted vaults with its own warning: the coming apply
+  resurrects them with their previous network ACLs, so the run behaves like a later run wearing
+  a first-run disguise.
+- Pester coverage for the Network Security Perimeter module surface (previously untested) and
+  for the new `-SoftFail` parameter across all three families.
+
 ## 2.1.0
 
 ### Added

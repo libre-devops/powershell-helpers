@@ -25,6 +25,36 @@ function Confirm-LdoNspCliExtension {
     }
 }
 
+
+# Probes a perimeter for the dance. Returns $true when it exists. When it does not: with
+# -SoftFail logs a WARN and returns $false (first run, the stack creates the perimeter; the next
+# run finds it and dances normally); without -SoftFail throws. Failures OTHER than absence
+# always throw, so auth or extension problems never masquerade as a first run.
+function Test-LdoNspDanceTarget {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$ResourceGroup,
+        [Parameter(Mandatory)][string]$PerimeterName,
+        [switch]$SoftFail
+    )
+
+    $probe = az network perimeter show -g $ResourceGroup -n $PerimeterName -o none 2>&1
+    if ($LASTEXITCODE -eq 0) { return $true }
+
+    $text = ($probe | Out-String)
+    if ($text -notmatch '(?i)notfound|could not be found|does not exist|was not found') {
+        throw "az network perimeter show ($PerimeterName) failed for a reason other than absence: $text"
+    }
+
+    if (-not $SoftFail) {
+        throw "Network security perimeter $PerimeterName was not found in $ResourceGroup. Pass -SoftFail when the stack itself creates the perimeter (first run)."
+    }
+
+    Write-LdoLog -Level WARN -Message "Network security perimeter $PerimeterName does not exist, so cannot append the runner IP; skipping (-SoftFail). The next run will find it and dance normally."
+    return $false
+}
+
 function Add-LdoNspCurrentIpRule {
     <#
     .SYNOPSIS
@@ -49,6 +79,11 @@ function Add-LdoNspCurrentIpRule {
     .PARAMETER RuleName
         Name of the access rule to create or update. Defaults to ldo-runner-allow.
 
+    .PARAMETER SoftFail
+        Skip (with a warning) instead of failing when the perimeter does not exist yet, for
+        stacks that create the perimeter themselves on the first run. Absence is the only
+        condition softened: any other failure still throws.
+
     .EXAMPLE
         Add-LdoNspCurrentIpRule -ResourceGroup rg -PerimeterName nsp -ProfileName default
 
@@ -61,10 +96,13 @@ function Add-LdoNspCurrentIpRule {
         [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$ResourceGroup,
         [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$PerimeterName,
         [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$ProfileName,
-        [string]$RuleName = 'ldo-runner-allow'
+        [string]$RuleName = 'ldo-runner-allow',
+        [switch]$SoftFail
     )
 
     Confirm-LdoNspCliExtension
+
+    if (-not (Test-LdoNspDanceTarget -ResourceGroup $ResourceGroup -PerimeterName $PerimeterName -SoftFail:$SoftFail)) { return }
 
     $ip = Get-LdoPublicIpAddress
     Write-LdoLog -Level INFO -Message "Current public IP: $ip"

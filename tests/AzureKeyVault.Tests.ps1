@@ -16,3 +16,11 @@ Describe 'AzureKeyVault parameter validation' {
         { Add-LdoKeyVaultCurrentIpRule -ResourceGroup rg -KeyVaultName '' } | Should -Throw
     }
 }
+
+Describe 'SoftFail dance option' {
+    It 'exposes -SoftFail on <_>' -ForEach @(
+        'Add-LdoKeyVaultCurrentIpRule', 'Remove-LdoKeyVaultCurrentIpRule'
+    ) {
+        (Get-Command $_).Parameters.ContainsKey('SoftFail') | Should -BeTrue
+    }
+}

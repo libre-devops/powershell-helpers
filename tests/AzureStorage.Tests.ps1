@@ -16,3 +16,11 @@ Describe 'AzureStorage parameter validation' {
         { Add-LdoStorageCurrentIpRule -ResourceGroup rg -StorageAccountName '' } | Should -Throw
     }
 }
+
+Describe 'SoftFail dance option' {
+    It 'exposes -SoftFail on <_>' -ForEach @(
+        'Add-LdoStorageCurrentIpRule', 'Remove-LdoStorageCurrentIpRule'
+    ) {
+        (Get-Command $_).Parameters.ContainsKey('SoftFail') | Should -BeTrue
+    }
+}

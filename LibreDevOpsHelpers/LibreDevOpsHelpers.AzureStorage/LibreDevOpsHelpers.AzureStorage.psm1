@@ -4,6 +4,35 @@ Set-StrictMode -Version Latest
 # restored after a temporary access rule is removed. Keyed by account name.
 $script:LdoStorageStateCache = @{ }
 
+# Probes a storage account for the dance. Returns $true when the account exists. When it does
+# not: with -SoftFail logs a WARN and returns $false (first run, the stack creates the account;
+# the next run finds it and dances normally); without -SoftFail throws. Failures OTHER than
+# absence always throw, so auth or network problems never masquerade as a first run.
+function Test-LdoStorageDanceTarget {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$ResourceGroup,
+        [Parameter(Mandatory)][string]$StorageAccountName,
+        [switch]$SoftFail
+    )
+
+    $probe = az storage account show -g $ResourceGroup -n $StorageAccountName -o none 2>&1
+    if ($LASTEXITCODE -eq 0) { return $true }
+
+    $text = ($probe | Out-String)
+    if ($text -notmatch '(?i)notfound|could not be found|does not exist|was not found') {
+        throw "az storage account show ($StorageAccountName) failed for a reason other than absence: $text"
+    }
+
+    if (-not $SoftFail) {
+        throw "Storage account $StorageAccountName was not found in $ResourceGroup. Pass -SoftFail when the stack itself creates the account (first run)."
+    }
+
+    Write-LdoLog -Level WARN -Message "Storage account $StorageAccountName does not exist, so cannot append the runner IP; skipping (-SoftFail). The next run will find it and dance normally."
+    return $false
+}
+
 function Add-LdoStorageCurrentIpRule {
     <#
     .SYNOPSIS
@@ -23,6 +52,11 @@ function Add-LdoStorageCurrentIpRule {
     .PARAMETER StorageAccountName
         Name of the storage account.
 
+    .PARAMETER SoftFail
+        Skip (with a warning) instead of failing when the account does not exist yet, for stacks
+        that create the account themselves on the first run. Absence is the only condition
+        softened: any other failure still throws.
+
     .EXAMPLE
         Add-LdoStorageCurrentIpRule -ResourceGroup rg-prod -StorageAccountName saprod
 
@@ -33,8 +67,11 @@ function Add-LdoStorageCurrentIpRule {
     [OutputType([void])]
     param(
         [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$ResourceGroup,
-        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$StorageAccountName
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$StorageAccountName,
+        [switch]$SoftFail
     )
+
+    if (-not (Test-LdoStorageDanceTarget -ResourceGroup $ResourceGroup -StorageAccountName $StorageAccountName -SoftFail:$SoftFail)) { return }
 
     $ip = Get-LdoPublicIpAddress
     Write-LdoLog -Level INFO -Message "Current public IP: $ip"
@@ -87,6 +124,11 @@ function Remove-LdoStorageCurrentIpRule {
     .PARAMETER StorageAccountName
         Name of the storage account.
 
+    .PARAMETER SoftFail
+        Skip (with a warning) instead of failing when the account does not exist, for teardown
+        paths where the stack (account included) may already be destroyed. Absence is the only
+        condition softened: any other failure still throws.
+
     .EXAMPLE
         Remove-LdoStorageCurrentIpRule -ResourceGroup rg-prod -StorageAccountName saprod
 
@@ -97,8 +139,11 @@ function Remove-LdoStorageCurrentIpRule {
     [OutputType([void])]
     param(
         [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$ResourceGroup,
-        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$StorageAccountName
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$StorageAccountName,
+        [switch]$SoftFail
     )
+
+    if (-not (Test-LdoStorageDanceTarget -ResourceGroup $ResourceGroup -StorageAccountName $StorageAccountName -SoftFail:$SoftFail)) { return }
 
     $ip = Get-LdoPublicIpAddress
 
