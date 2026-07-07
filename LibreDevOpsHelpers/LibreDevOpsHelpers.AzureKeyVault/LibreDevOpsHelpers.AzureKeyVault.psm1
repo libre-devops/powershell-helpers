@@ -142,6 +142,12 @@ function Remove-LdoKeyVaultCurrentIpRule {
         paths where the stack (vault included) may already be destroyed. Absence is the only
         condition softened: any other failure still throws.
 
+    .PARAMETER RuleOnly
+        Remove only the runner IP rule and leave the vault's network configuration (public
+        network access, default action, bypass) untouched. Use when the run's own Terraform
+        apply changed the vault, where restoring the pre-run capture would overwrite what
+        Terraform just wrote; the terraform-azure engine detects this from the plan.
+
     .EXAMPLE
         Remove-LdoKeyVaultCurrentIpRule -ResourceGroup rg-prod -KeyVaultName kv-prod
 
@@ -153,7 +159,8 @@ function Remove-LdoKeyVaultCurrentIpRule {
     param(
         [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$ResourceGroup,
         [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$KeyVaultName,
-        [switch]$SoftFail
+        [switch]$SoftFail,
+        [switch]$RuleOnly
     )
 
     if ($script:LdoKeyVaultDanceSkipped.ContainsKey($KeyVaultName)) {
@@ -168,12 +175,25 @@ function Remove-LdoKeyVaultCurrentIpRule {
 
     az keyvault network-rule remove -g $ResourceGroup -n $KeyVaultName --ip-address $ip 2>$null | Out-Null
 
+    if ($RuleOnly) {
+        $script:LdoKeyVaultStateCache.Remove($KeyVaultName) | Out-Null
+        Write-LdoLog -Level INFO -Message "Removed temporary rule for $ip from $KeyVaultName; network configuration left untouched (-RuleOnly)."
+        return
+    }
+
     if ($script:LdoKeyVaultStateCache.ContainsKey($KeyVaultName)) {
         $cached = $script:LdoKeyVaultStateCache[$KeyVaultName]
-        $publicAccess = if ($cached.PublicNetworkAccess) { $cached.PublicNetworkAccess } else { 'Disabled' }
-        $defaultAction = if ($cached.DefaultAction) { $cached.DefaultAction } else { 'Deny' }
+        # A null captured value means the property was UNSET at capture time, and unset means the
+        # platform default: public network access Enabled, and absent network ACLs, which Key
+        # Vault treats as Allow (ARM reads an Allow-with-no-rules vault back exactly this way).
+        # Restoring an invented lockdown over that clobbers a vault that was open by design.
+        $publicAccess = if ($cached.PublicNetworkAccess) { $cached.PublicNetworkAccess } else { 'Enabled' }
+        $defaultAction = if ($cached.DefaultAction) { $cached.DefaultAction } else { 'Allow' }
     }
     else {
+        # No captured state at all (a standalone Remove that never had a paired Add): fall back
+        # to the locked-down posture, the safe side for the dance's designed target, a
+        # pre-existing firewalled vault.
         $publicAccess = 'Disabled'
         $defaultAction = 'Deny'
         $cached = @{ Bypass = $null }

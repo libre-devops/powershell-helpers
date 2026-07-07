@@ -2,6 +2,26 @@
 
 All notable changes to LibreDevOpsHelpers are recorded here.
 
+## 2.4.3
+
+### Changed
+- The dance restore restores exactly what was captured. A null captured value means the property
+  was UNSET at capture time, so the restore now applies the platform default (public network
+  access Enabled, default action Allow) instead of an invented lockdown. ARM reads an
+  Allow-with-no-rules Key Vault back as a null `defaultAction`, and the old fallback stamped
+  Deny over vaults that were open by design (caught live: the rotation exemplar's vault lost its
+  deliberate public posture after every danced run). The locked-down fallback now applies only
+  to a standalone `Remove` that never had a paired `Add`.
+
+### Added
+- `-RuleOnly` on `Remove-LdoKeyVaultCurrentIpRule` and `Remove-LdoStorageCurrentIpRule`: remove
+  just the runner IP rule and leave the network configuration untouched, for runs whose own
+  Terraform apply changes the danced resource (restoring the pre-run capture would overwrite
+  what Terraform wrote).
+- `Test-LdoTerraformPlanChangesResource`: true when a plan JSON creates, updates, or deletes a
+  resource of a given type and name, so the terraform-azure engine can switch to the rule-only
+  removal automatically.
+
 ## 2.4.2
 
 ### Fixed

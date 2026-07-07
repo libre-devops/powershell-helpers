@@ -652,6 +652,73 @@ function Convert-LdoTerraformPlanToJson {
     }
 }
 
+function Test-LdoTerraformPlanChangesResource {
+    <#
+    .SYNOPSIS
+        Tests whether a Terraform plan (rendered to JSON) changes a named resource of a type.
+
+    .DESCRIPTION
+        Scans the plan's resource_changes (a flat list covering root and child modules) for a
+        resource of the given Terraform type whose name matches, with a change action other than
+        no-op or read. Used by the terraform-azure engine's firewall dance: when the run's own
+        plan changes the danced key vault or storage account, the post-run removal must not
+        "restore" the pre-run network configuration over what Terraform wrote, so the engine
+        switches to a rule-only removal.
+
+    .PARAMETER PlanJsonPath
+        Path to the plan JSON (terraform show -json).
+
+    .PARAMETER ResourceType
+        Terraform resource type, for example azurerm_key_vault.
+
+    .PARAMETER ResourceName
+        The resource's Azure name (the name attribute, not the Terraform address).
+
+    .EXAMPLE
+        Test-LdoTerraformPlanChangesResource -PlanJsonPath ./tfplan.plan.json -ResourceType azurerm_key_vault -ResourceName kv-ldo-uks-prd-001
+
+    .OUTPUTS
+        System.Boolean
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$PlanJsonPath,
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$ResourceType,
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$ResourceName
+    )
+
+    if (-not (Test-Path $PlanJsonPath)) {
+        throw "Plan JSON not found: $PlanJsonPath"
+    }
+
+    # Parse as nested hashtables so missing keys are handled with ContainsKey (no Set-StrictMode
+    # property-navigation errors on plans without resource_changes).
+    $plan = Get-Content -Raw -LiteralPath $PlanJsonPath | ConvertFrom-Json -AsHashtable
+    if (-not $plan.ContainsKey('resource_changes')) { return $false }
+
+    foreach ($rc in @($plan['resource_changes'])) {
+        if ($rc['type'] -ne $ResourceType) { continue }
+
+        $change = $rc['change']
+        $actions = @($change['actions'])
+        # no-op and read leave the resource untouched; create, update, delete, and replace all
+        # mean Terraform owns the resource's end state this run.
+        if (-not ($actions | Where-Object { $_ -in @('create', 'update', 'delete') })) { continue }
+
+        # The name lives in after for create/update and only in before for delete.
+        $name = $null
+        if ($null -ne $change['after'] -and $change['after'] -is [hashtable] -and $change['after'].ContainsKey('name')) {
+            $name = $change['after']['name']
+        }
+        elseif ($null -ne $change['before'] -and $change['before'] -is [hashtable] -and $change['before'].ContainsKey('name')) {
+            $name = $change['before']['name']
+        }
+        if ($name -eq $ResourceName) { return $true }
+    }
+    return $false
+}
+
 Export-ModuleMember -Function `
     Invoke-LdoTerraformValidate, `
     Invoke-LdoTerraformFmtCheck, `
@@ -662,4 +729,5 @@ Export-ModuleMember -Function `
     Invoke-LdoTerraformPlanDestroy, `
     Invoke-LdoTerraformApply, `
     Invoke-LdoTerraformDestroy, `
-    Convert-LdoTerraformPlanToJson
+    Convert-LdoTerraformPlanToJson, `
+    Test-LdoTerraformPlanChangesResource

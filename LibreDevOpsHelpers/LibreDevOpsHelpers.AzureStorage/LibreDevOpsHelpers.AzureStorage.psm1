@@ -137,6 +137,12 @@ function Remove-LdoStorageCurrentIpRule {
         paths where the stack (account included) may already be destroyed. Absence is the only
         condition softened: any other failure still throws.
 
+    .PARAMETER RuleOnly
+        Remove only the runner IP rule and leave the account's network configuration (public
+        network access, default action, bypass) untouched. Use when the run's own Terraform
+        apply changed the account, where restoring the pre-run capture would overwrite what
+        Terraform just wrote; the terraform-azure engine detects this from the plan.
+
     .EXAMPLE
         Remove-LdoStorageCurrentIpRule -ResourceGroup rg-prod -StorageAccountName saprod
 
@@ -148,7 +154,8 @@ function Remove-LdoStorageCurrentIpRule {
     param(
         [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$ResourceGroup,
         [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$StorageAccountName,
-        [switch]$SoftFail
+        [switch]$SoftFail,
+        [switch]$RuleOnly
     )
 
     if ($script:LdoStorageDanceSkipped.ContainsKey($StorageAccountName)) {
@@ -164,12 +171,24 @@ function Remove-LdoStorageCurrentIpRule {
     az storage account network-rule remove -g $ResourceGroup -n $StorageAccountName --ip-address $ip 2>$null | Out-Null
     Write-LdoLog -Level INFO -Message "Removed temporary storage rule for $ip from $StorageAccountName."
 
+    if ($RuleOnly) {
+        $script:LdoStorageStateCache.Remove($StorageAccountName) | Out-Null
+        Write-LdoLog -Level INFO -Message "Network configuration on $StorageAccountName left untouched (-RuleOnly)."
+        return
+    }
+
     if ($script:LdoStorageStateCache.ContainsKey($StorageAccountName)) {
         $cached = $script:LdoStorageStateCache[$StorageAccountName]
-        $publicAccess = if ($cached.PublicNetworkAccess) { $cached.PublicNetworkAccess } else { 'Disabled' }
-        $defaultAction = if ($cached.DefaultAction) { $cached.DefaultAction } else { 'Deny' }
+        # A null captured value means the property was UNSET at capture time, and unset means the
+        # platform default (public network access Enabled, default action Allow): restore that,
+        # never an invented lockdown over an account that was open by design.
+        $publicAccess = if ($cached.PublicNetworkAccess) { $cached.PublicNetworkAccess } else { 'Enabled' }
+        $defaultAction = if ($cached.DefaultAction) { $cached.DefaultAction } else { 'Allow' }
     }
     else {
+        # No captured state at all (a standalone Remove that never had a paired Add): fall back
+        # to the locked-down posture, the safe side for the dance's designed target, a
+        # pre-existing firewalled account such as the remote state store.
         $publicAccess = 'Disabled'
         $defaultAction = 'Deny'
         $cached = @{ Bypass = $null }

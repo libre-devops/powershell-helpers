@@ -17,6 +17,12 @@ Describe 'AzureStorage parameter validation' {
     }
 }
 
+Describe 'RuleOnly dance option' {
+    It 'exposes -RuleOnly on Remove-LdoStorageCurrentIpRule' {
+        (Get-Command Remove-LdoStorageCurrentIpRule).Parameters.ContainsKey('RuleOnly') | Should -BeTrue
+    }
+}
+
 Describe 'SoftFail dance option' {
     It 'exposes -SoftFail on <_>' -ForEach @(
         'Add-LdoStorageCurrentIpRule', 'Remove-LdoStorageCurrentIpRule'

@@ -17,6 +17,12 @@ Describe 'AzureKeyVault parameter validation' {
     }
 }
 
+Describe 'RuleOnly dance option' {
+    It 'exposes -RuleOnly on Remove-LdoKeyVaultCurrentIpRule' {
+        (Get-Command Remove-LdoKeyVaultCurrentIpRule).Parameters.ContainsKey('RuleOnly') | Should -BeTrue
+    }
+}
+
 Describe 'SoftFail dance option' {
     It 'exposes -SoftFail on <_>' -ForEach @(
         'Add-LdoKeyVaultCurrentIpRule', 'Remove-LdoKeyVaultCurrentIpRule'
