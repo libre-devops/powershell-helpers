@@ -96,15 +96,23 @@ function Invoke-LdoTrivy {
         throws only on findings at the -Severity levels. Use -SoftFail to warn instead of throw.
 
         Exceptions are sourced, in order of precedence: an explicit -IgnoreFile; a committed
-        ignore file in the code path (.trivyignore.yaml, .trivyignore.yml, or .trivyignore); or
-        a temporary file built from -TrivySkipChecks. A committed .trivyignore.yaml is the Libre
+        ignore file (.trivyignore.yaml, .trivyignore.yml, or .trivyignore) found by walking up
+        from the code path to the enclosing git repository root, nearest file first; or a
+        temporary file built from -TrivySkipChecks. A committed .trivyignore.yaml is the Libre
         DevOps convention, since it records the id, the affected paths, and a statement (the
-        justification) for each waiver. Trivy does not auto-discover .trivyignore.yaml, so the
-        resolved path is always passed with --ignorefile.
+        justification) for each waiver, and the walk-up means a repo-root file covers every
+        stack folder scanned individually (examples/complete and friends). Trivy does not
+        auto-discover .trivyignore.yaml, so the resolved path is always passed with --ignorefile.
+
+        Note on scoping waivers with paths: Trivy reports a finding raised inside a downloaded
+        module (.terraform/modules) under the module's source address plus the path relative to
+        the scan target, so literal repo-relative paths do not match; use a doublestar glob like
+        "**/.terraform/modules/key_vault/main.tf" instead.
 
     .PARAMETER CodePath
-        Folder to scan. A .trivyignore.yaml (or .yml / .trivyignore) in this folder is picked
-        up automatically.
+        Folder to scan. A .trivyignore.yaml (or .yml / .trivyignore) in this folder, or in any
+        parent up to the git repository root, is picked up automatically (nearest wins). Without
+        a git root, only this folder is searched.
 
     .PARAMETER TrivySkipChecks
         Check ids to ignore, written to a temporary ignore file. Used only when neither
@@ -169,13 +177,37 @@ function Invoke-LdoTrivy {
             $resolvedIgnore = (Resolve-Path -LiteralPath $IgnoreFile).Path
         }
         else {
-            foreach ($candidate in @('.trivyignore.yaml', '.trivyignore.yml', '.trivyignore')) {
-                $candidatePath = Join-Path $CodePath $candidate
-                if (Test-Path $candidatePath) {
-                    $resolvedIgnore = (Resolve-Path -LiteralPath $candidatePath).Path
-                    Write-LdoLog -Level INFO -Message "Using committed Trivy ignore file: $resolvedIgnore"
-                    break
+            # Find the enclosing git repository root; without one, only the code path itself is
+            # searched (never the whole filesystem), so a stray ignore file outside the repo can
+            # never silently waive findings.
+            $resolvedCodePath = (Resolve-Path -LiteralPath $CodePath).Path
+            $boundary = $null
+            $probeDir = $resolvedCodePath
+            while ($probeDir) {
+                if (Test-Path (Join-Path $probeDir '.git')) { $boundary = $probeDir; break }
+                $parent = Split-Path -Path $probeDir -Parent
+                if (-not $parent -or $parent -eq $probeDir) { break }
+                $probeDir = $parent
+            }
+            if (-not $boundary) { $boundary = $resolvedCodePath }
+
+            # Walk from the code path up to the repo root: the nearest committed ignore file wins,
+            # so a repo-root .trivyignore.yaml covers every stack folder (examples/complete and
+            # friends) without per-stack copies, and a stack-local file can still override it.
+            $searchDir = $resolvedCodePath
+            while ($searchDir) {
+                foreach ($candidate in @('.trivyignore.yaml', '.trivyignore.yml', '.trivyignore')) {
+                    $candidatePath = Join-Path $searchDir $candidate
+                    if (Test-Path $candidatePath) {
+                        $resolvedIgnore = (Resolve-Path -LiteralPath $candidatePath).Path
+                        Write-LdoLog -Level INFO -Message "Using committed Trivy ignore file: $resolvedIgnore"
+                        break
+                    }
                 }
+                if ($resolvedIgnore -or $searchDir -eq $boundary) { break }
+                $parent = Split-Path -Path $searchDir -Parent
+                if (-not $parent -or $parent -eq $searchDir) { break }
+                $searchDir = $parent
             }
         }
 

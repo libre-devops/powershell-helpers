@@ -2,6 +2,21 @@
 
 All notable changes to LibreDevOpsHelpers are recorded here.
 
+## 2.4.1
+
+### Changed
+- `Invoke-LdoTrivy` now discovers a committed ignore file (`.trivyignore.yaml`, `.trivyignore.yml`,
+  or `.trivyignore`) by walking up from the code path to the enclosing git repository root, nearest
+  file first, instead of looking only in the code path itself. A repo-root `.trivyignore.yaml`
+  therefore covers every stack folder scanned individually (`examples/complete` and friends)
+  without per-stack copies, and a stack-local file still wins. Without a git root only the code
+  path is searched, so a stray ignore file outside the repository can never silently waive
+  findings.
+- Documented the path-scoping gotcha for waivers on findings inside downloaded modules: Trivy
+  reports such paths under the module's source address plus the path relative to the scan target,
+  so literal repo-relative paths never match; scope with a doublestar glob such as
+  `**/.terraform/modules/key_vault/main.tf`.
+
 ## 2.4.0
 
 ### Added

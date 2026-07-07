@@ -65,5 +65,22 @@ misconfigurations:
             try { { Invoke-LdoTrivy -CodePath $dir -IgnoreFile $f } | Should -Not -Throw }
             finally { Remove-Item $f -Force -ErrorAction SilentlyContinue }
         }
+
+        It 'discovers a repo-root ignore file from a stack subfolder' {
+            # A .git marker makes $dir the repo root; the ignore file sits there while the scan
+            # targets the stack subfolder, exercising the walk-up.
+            New-Item -ItemType Directory -Path (Join-Path $dir '.git') -Force | Out-Null
+            $stack = Join-Path $dir 'stack'
+            New-Item -ItemType Directory -Path $stack -Force | Out-Null
+            Copy-Item (Join-Path $dir 'main.tf') (Join-Path $stack 'main.tf')
+            $f = Join-Path $dir '.trivyignore.yaml'
+            Set-Content -LiteralPath $f -Value $waiver
+            try { { Invoke-LdoTrivy -CodePath $stack } | Should -Not -Throw }
+            finally {
+                Remove-Item $f -Force -ErrorAction SilentlyContinue
+                Remove-Item $stack -Recurse -Force -ErrorAction SilentlyContinue
+                Remove-Item (Join-Path $dir '.git') -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
     }
 }
