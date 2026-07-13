@@ -218,22 +218,47 @@ function Invoke-LdoDefenderHuntingQuery {
     .PARAMETER Query
         The KQL hunting query.
 
+    .PARAMETER Timespan
+        Optional ISO 8601 lookback (PT1H, P7D, or start/end forms). The service default is
+        30 days.
+
+    .PARAMETER ApiVersion
+        Graph API version. Defaults to v1.0, where runHuntingQuery is generally available.
+
+    .PARAMETER MaxRetries
+        Maximum attempts per call. Defaults to 5.
+
+    .PARAMETER Raw
+        Return the full Graph response (schema plus results) instead of just the result rows,
+        for callers that need the result schema (for example query validation tooling).
+
     .EXAMPLE
         Invoke-LdoDefenderHuntingQuery -Query 'DeviceProcessEvents | take 10'
 
+    .EXAMPLE
+        Invoke-LdoDefenderHuntingQuery -Query $kql -Timespan 'PT1H' -Raw
+
     .OUTPUTS
-        System.Object[]
+        System.Object[] by default; the full response object with -Raw.
     #>
     [CmdletBinding()]
     [OutputType([object[]])]
     param(
-        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$Query
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$Query,
+        [string]$Timespan,
+        [ValidateSet('v1.0', 'beta')][string]$ApiVersion = 'v1.0',
+        [int]$MaxRetries = 5,
+        [switch]$Raw
     )
+
+    $body = @{ query = $Query }
+    if ($Timespan) { $body.timespan = $Timespan }
 
     Write-LdoLog -Level INFO -Message 'Running Defender advanced hunting query.'
     $response = Invoke-LdoGraphRequest -Method Post `
-        -Uri 'https://graph.microsoft.com/v1.0/security/runHuntingQuery' `
-        -Body @{ query = $Query }
+        -Uri "https://graph.microsoft.com/$ApiVersion/security/runHuntingQuery" `
+        -Body $body -MaxRetries $MaxRetries
+    if ($Raw) { return $response }
     return @($response.results)
 }
 

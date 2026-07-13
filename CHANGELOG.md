@@ -2,6 +2,30 @@
 
 All notable changes to LibreDevOpsHelpers are recorded here.
 
+## 2.5.0
+
+### Added
+- New `LibreDevOpsHelpers.Kql` submodule: the detections-as-code validation gate.
+  - `Install-LdoKustoLanguage`: downloads and caches the Microsoft.Azure.Kusto.Language
+    assembly (the library behind the product's own KQL editors) for offline parsing.
+  - `Test-LdoKqlSyntax`: offline KQL syntax validation for queries or files, with labelled
+    diagnostics and a `-PassThru` object mode.
+  - `Test-LdoDefenderHuntingQuery`: validates a query against the tenant's real advanced
+    hunting schema via `security/runHuntingQuery`; queries run verbatim by default, a trailing
+    `| take 1` is opt in through `-AppendTake` (appending an operator can interact badly with a
+    query that already ends in one). Needs `ThreatHunting.Read.All`.
+  - `ConvertFrom-LdoYaml`: YAML parsing through yq when available, with a powershell-yaml
+    fallback, so CI and local runs share one code path.
+  - `Test-LdoDetectionRuleFile` and `Invoke-LdoDetectionGate`: the per-file and per-directory
+    pull request gate for analyst authored custom detection YAML (parse, optional JSON Schema
+    via `Test-Json`, offline KQL syntax, optional remote hunting validation), reporting through
+    the findings summary and failing CI when any rule is broken.
+
+### Changed
+- `Invoke-LdoDefenderHuntingQuery` gains optional `-Timespan`, `-ApiVersion`, `-MaxRetries`
+  and `-Raw` (full response with the result schema instead of just rows). Existing callers are
+  unaffected.
+
 ## 2.4.3
 
 ### Changed

@@ -12,7 +12,7 @@
     RootModule = '.\LibreDevOpsHelpers.psm1'
 
     # Version number of this module.
-    ModuleVersion = '2.4.3'
+    ModuleVersion = '2.5.0'
 
     # Supported PSEditions
     # CompatiblePSEditions = @()
@@ -87,6 +87,7 @@
         'LibreDevOpsHelpers.GitLab/LibreDevOpsHelpers.GitLab.psm1',
         'LibreDevOpsHelpers.Graph/LibreDevOpsHelpers.Graph.psm1',
         'LibreDevOpsHelpers.Homebrew/LibreDevOpsHelpers.Homebrew.psm1',
+        'LibreDevOpsHelpers.Kql/LibreDevOpsHelpers.Kql.psm1',
         'LibreDevOpsHelpers.Logger/LibreDevOpsHelpers.Logger.psm1',
         'LibreDevOpsHelpers.Packer/LibreDevOpsHelpers.Packer.psm1',
         'LibreDevOpsHelpers.Pester/LibreDevOpsHelpers.Pester.psm1',
@@ -140,6 +141,7 @@
         'Connect-LdoGlab',
         'Convert-LdoTerraformPlanToJson',
         'Test-LdoTerraformPlanChangesResource',
+        'ConvertFrom-LdoYaml',
         'ConvertTo-LdoBoolean',
         'ConvertTo-LdoNull',
         'Disconnect-LdoAzureCli',
@@ -182,6 +184,7 @@
         'Install-LdoCheckov',
         'Install-LdoConftest',
         'Install-LdoGlab',
+        'Install-LdoKustoLanguage',
         'Install-LdoTenv',
         'Install-LdoTfLint',
         'Install-LdoTrivy',
@@ -196,6 +199,7 @@
         'Invoke-LdoDefenderHuntingQuery',
         'Invoke-LdoFunctionAppZipDeploy',
         'Invoke-LdoGlabPipeline',
+        'Invoke-LdoDetectionGate',
         'Invoke-LdoGraphRequest',
         'Invoke-LdoPackerBuild',
         'Invoke-LdoPackerInit',
@@ -259,7 +263,10 @@
         'Test-LdoAzureCliConnection',
         'Test-LdoAzurePowerShellConnection',
         'Test-LdoCommandOutputMatch',
+        'Test-LdoDefenderHuntingQuery',
+        'Test-LdoDetectionRuleFile',
         'Test-LdoGlab',
+        'Test-LdoKqlSyntax',
         'Test-LdoPath',
         'Test-LdoTenv',
         'Test-LdoUv',
