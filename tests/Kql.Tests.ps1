@@ -100,6 +100,28 @@ Describe 'ConvertFrom-LdoYaml' -Skip:(-not $yamlReady) {
     }
 }
 
+Describe 'ConvertTo-LdoCanonicalDetectionRule' {
+
+    It 'normalises sloppy analyst values to the canonical spellings' {
+        $rule = '{"status":"Enabled","frequency":"pt1h","alert":{"severity":"Medium","mitre":[{"tactic":"credential access","techniques":["t1110"]},{"tactic":"DefenceEvasion","techniques":[{"technique":"t1562","sub_techniques":["t1562.008"]}]}]}}' |
+            ConvertFrom-Json
+        $out = ConvertTo-LdoCanonicalDetectionRule -Rule $rule
+        $out.status | Should -Be 'enabled'
+        $out.frequency | Should -Be 'PT1H'
+        $out.alert.severity | Should -Be 'medium'
+        $out.alert.mitre[0].tactic | Should -Be 'CredentialAccess'
+        $out.alert.mitre[0].techniques[0] | Should -Be 'T1110'
+        $out.alert.mitre[1].tactic | Should -Be 'DefenseEvasion'
+        $out.alert.mitre[1].techniques[0].technique | Should -Be 'T1562'
+        $out.alert.mitre[1].techniques[0].sub_techniques[0] | Should -Be 'T1562.008'
+    }
+
+    It 'leaves unknown values untouched for the schema to reject' {
+        $rule = '{"status":"Enabled","alert":{"mitre":[{"tactic":"NotATactic"}]}}' | ConvertFrom-Json
+        (ConvertTo-LdoCanonicalDetectionRule -Rule $rule).alert.mitre[0].tactic | Should -Be 'NotATactic'
+    }
+}
+
 Describe 'Test-LdoDetectionRuleFile' -Skip:(-not ($yamlReady -and $kustoReady)) {
 
     BeforeEach {

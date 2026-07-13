@@ -306,6 +306,93 @@ function ConvertFrom-LdoYaml {
     return ConvertFrom-Yaml -Yaml $raw
 }
 
+function ConvertTo-LdoCanonicalDetectionRule {
+    <#
+    .SYNOPSIS
+        Normalises analyst supplied detection rule values to their canonical Graph spellings.
+
+    .DESCRIPTION
+        Mirrors the value normalisation the terraform-msgraph-xdr-custom-detection-rules module
+        applies at plan time, so the CI schema gate and Terraform never disagree: keys stay strict,
+        values are forgiving. status, severity and isolation_type lowercase; frequency and
+        technique ids uppercase; tactics resolve case and separator insensitively to the canonical
+        ATT&CK spelling (including the British DefenceEvasion to the API's DefenseEvasion). Values
+        that match nothing are left untouched for the schema to reject with the canonical list.
+
+    .PARAMETER Rule
+        The parsed rule (a PSCustomObject tree, for example from ConvertFrom-Json). Mutated in
+        place and returned.
+
+    .OUTPUTS
+        System.Object. The normalised rule.
+    #>
+    [CmdletBinding()]
+    [OutputType([object])]
+    param(
+        [Parameter(Mandatory)]$Rule
+    )
+
+    $tactics = @{
+        collection = 'Collection'; commandandcontrol = 'CommandAndControl'
+        credentialaccess = 'CredentialAccess'; defenceevasion = 'DefenseEvasion'
+        defenseevasion = 'DefenseEvasion'; discovery = 'Discovery'; execution = 'Execution'
+        exfiltration = 'Exfiltration'; impact = 'Impact'; initialaccess = 'InitialAccess'
+        lateralmovement = 'LateralMovement'; persistence = 'Persistence'
+        privilegeescalation = 'PrivilegeEscalation'; reconnaissance = 'Reconnaissance'
+        resourcedevelopment = 'ResourceDevelopment'
+    }
+
+    if ($Rule.PSObject.Properties['status'] -and $Rule.status -is [string]) {
+        $Rule.status = $Rule.status.ToLowerInvariant()
+    }
+    if ($Rule.PSObject.Properties['frequency'] -and $Rule.frequency -is [string]) {
+        $Rule.frequency = $Rule.frequency.ToUpperInvariant()
+    }
+
+    $alert = if ($Rule.PSObject.Properties['alert']) { $Rule.alert } else { $null }
+    if ($alert -and $alert -is [pscustomobject]) {
+        if ($alert.PSObject.Properties['severity'] -and $alert.severity -is [string]) {
+            $alert.severity = $alert.severity.ToLowerInvariant()
+        }
+        if ($alert.PSObject.Properties['mitre'] -and $alert.mitre) {
+            foreach ($m in @($alert.mitre)) {
+                if ($m -isnot [pscustomobject]) { continue }
+                if ($m.PSObject.Properties['tactic'] -and $m.tactic -is [string]) {
+                    $keyed = ($m.tactic -replace '[ _-]', '').ToLowerInvariant()
+                    if ($tactics.ContainsKey($keyed)) { $m.tactic = $tactics[$keyed] }
+                }
+                if ($m.PSObject.Properties['techniques'] -and $m.techniques) {
+                    $m.techniques = @(foreach ($t in @($m.techniques)) {
+                            if ($t -is [string]) { $t.ToUpperInvariant() }
+                            else {
+                                if ($t.PSObject.Properties['technique'] -and $t.technique -is [string]) {
+                                    $t.technique = $t.technique.ToUpperInvariant()
+                                }
+                                if ($t.PSObject.Properties['sub_techniques'] -and $t.sub_techniques) {
+                                    $t.sub_techniques = @(foreach ($st in @($t.sub_techniques)) {
+                                            if ($st -is [string]) { $st.ToUpperInvariant() } else { $st }
+                                        })
+                                }
+                                $t
+                            }
+                        })
+                }
+            }
+        }
+    }
+
+    $actions = if ($Rule.PSObject.Properties['automated_actions']) { $Rule.automated_actions } else { $null }
+    if ($actions -and $actions.PSObject.Properties['isolate_devices'] -and $actions.isolate_devices) {
+        foreach ($a in @($actions.isolate_devices)) {
+            if ($a -and $a.PSObject.Properties['isolation_type'] -and $a.isolation_type -is [string]) {
+                $a.isolation_type = $a.isolation_type.ToLowerInvariant()
+            }
+        }
+    }
+
+    return $Rule
+}
+
 function Test-LdoDetectionRuleFile {
     <#
     .SYNOPSIS
@@ -370,7 +457,11 @@ function Test-LdoDetectionRuleFile {
     }
 
     if ($SchemaPath) {
-        $json = $rule | ConvertTo-Json -Depth 100
+        # Round trip through JSON for a uniform PSCustomObject tree, then normalise values the same
+        # way the Terraform module does, so this gate and the plan never disagree about case.
+        $canonical = ($rule | ConvertTo-Json -Depth 100) | ConvertFrom-Json
+        $canonical = ConvertTo-LdoCanonicalDetectionRule -Rule $canonical
+        $json = $canonical | ConvertTo-Json -Depth 100
         $schemaErrors = @()
         $valid = Test-Json -Json $json -SchemaFile $SchemaPath -ErrorAction SilentlyContinue -ErrorVariable schemaErrors
         if (-not $valid) {

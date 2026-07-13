@@ -2,6 +2,17 @@
 
 All notable changes to LibreDevOpsHelpers are recorded here.
 
+## 2.5.1
+
+### Added
+- `ConvertTo-LdoCanonicalDetectionRule`: best endeavours value normalisation for analyst authored
+  detection rules, mirroring the terraform-msgraph-xdr-custom-detection-rules module so the CI
+  schema gate and the Terraform plan never disagree: status, severity and isolation types
+  lowercase; frequencies and technique ids uppercase; tactics resolve case and separator
+  insensitively to the canonical ATT&CK spelling (including British DefenceEvasion to the API's
+  DefenseEvasion). `Test-LdoDetectionRuleFile` applies it before the JSON Schema check. Keys stay
+  strict; unknown values still fail with the canonical list named.
+
 ## 2.5.0
 
 ### Added
