@@ -2,6 +2,33 @@
 
 All notable changes to LibreDevOpsHelpers are recorded here.
 
+## 2.6.0
+
+### Added
+- New `LibreDevOpsHelpers.Yaml` submodule: `ConvertTo-LdoYaml`, a PowerShell native YAML emitter
+  for analyst facing files (two space indent, literal block scalars for multiline strings such as
+  KQL, minimal quoting, deterministic key order from `[ordered]` input, inline `{}` / `[]`).
+  `ConvertFrom-LdoYaml` moved here from the Kql submodule (same export, no caller change).
+- `Get-LdoCustomDetectionRule`: list or get Defender XDR custom detection rules with nextLink
+  paging; a 403 logs the two unlocks (app roles, or admin consenting the delegated
+  CustomDetection permissions to the Azure CLI application, since the CLI cannot request those
+  scopes itself).
+- `Export-LdoCustomDetectionRule`: the brownfield half of detections as code. Every rule becomes
+  one file under `<OutDir>/<category>/` (category = kebab case of the first ATT&CK tactic),
+  converted from Graph camelCase to the terraform-msgraph-xdr-custom-detection-rules snake_case
+  authoring schema. The server assigned rule id is kept on purpose so `terraform import`
+  addresses and later plans line up; legacy shape rules (category, mitreTechniques,
+  impactedAssets, responseActions, period strings) convert best endeavours with anything
+  unconvertible emitted as a TODO comment, never silently dropped. `-Format Json` writes the same
+  spec as JSON (a conversion convenience; export notes go to the log since JSON carries no
+  comments).
+- New `LibreDevOpsHelpers.Terraform.GraphImport` submodule, the Graph sibling of
+  `Terraform.AzureImport`: `Get-LdoTerraformGraphImportResourceId` (resolves the msgraph
+  provider's `<url>/<id>?api-version=<v>` import id, matching planned body id first, then an
+  unambiguous display name) and `Invoke-LdoTerraformGraphImportFromPlan` (walks a plan's managed
+  msgraph_resource creations, writes a manifest CSV, imports each, `-DryRun` supported). Custom
+  detection rules are the first supported collection.
+
 ## 2.5.1
 
 ### Added

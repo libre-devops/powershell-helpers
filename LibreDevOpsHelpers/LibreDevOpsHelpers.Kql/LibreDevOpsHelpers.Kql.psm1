@@ -247,65 +247,6 @@ function Test-LdoDefenderHuntingQuery {
     }
 }
 
-function ConvertFrom-LdoYaml {
-    <#
-    .SYNOPSIS
-        Parses YAML into objects, preferring the yq binary with a powershell-yaml fallback.
-
-    .DESCRIPTION
-        Uses yq (present on GitHub hosted runners and most dev machines) to convert YAML
-        to JSON and returns the parsed object; when yq is unavailable, installs and uses
-        the powershell-yaml module instead. One code path for CI and local use.
-
-    .PARAMETER Path
-        A YAML file to parse.
-
-    .PARAMETER Content
-        YAML content to parse.
-
-    .EXAMPLE
-        ConvertFrom-LdoYaml -Path ./custom-detections/identity/rule.yaml
-
-    .OUTPUTS
-        System.Object
-    #>
-    [CmdletBinding(DefaultParameterSetName = 'Path')]
-    [OutputType([object])]
-    param(
-        [Parameter(Mandatory, ParameterSetName = 'Path')][ValidateNotNullOrEmpty()][string]$Path,
-        [Parameter(Mandatory, ParameterSetName = 'Content')][ValidateNotNullOrEmpty()][string]$Content
-    )
-
-    if ($PSCmdlet.ParameterSetName -eq 'Path' -and -not (Test-Path $Path)) {
-        throw "ConvertFrom-LdoYaml: file not found: $Path"
-    }
-
-    if (Get-Command yq -ErrorAction SilentlyContinue) {
-        # Two unrelated tools ship as "yq": mikefarah's Go build (GitHub runners) wants
-        # `yq eval -o=json`, while the kislyuk Python jq-wrapper wants plain `yq .` and emits
-        # JSON by default. Detect the flavour once per call and speak the right dialect.
-        $goFlavour = ((& yq --version 2>&1) -join ' ') -match 'mikefarah'
-
-        $json = if ($PSCmdlet.ParameterSetName -eq 'Path') {
-            if ($goFlavour) { & yq eval -o=json '.' $Path } else { & yq '.' $Path }
-        }
-        else {
-            if ($goFlavour) { $Content | & yq eval -o=json '.' - } else { $Content | & yq '.' }
-        }
-        Assert-LdoLastExitCode -Operation 'yq (yaml to json)'
-        return ($json -join "`n") | ConvertFrom-Json -Depth 100
-    }
-
-    if (-not (Get-Module -ListAvailable powershell-yaml)) {
-        Write-LdoLog -Level INFO -Message 'yq not found; installing the powershell-yaml module.'
-        Install-Module powershell-yaml -Scope CurrentUser -Force -AllowClobber
-    }
-    Import-Module powershell-yaml -ErrorAction Stop
-
-    $raw = if ($PSCmdlet.ParameterSetName -eq 'Path') { Get-Content -Raw $Path } else { $Content }
-    return ConvertFrom-Yaml -Yaml $raw
-}
-
 function ConvertTo-LdoCanonicalDetectionRule {
     <#
     .SYNOPSIS
@@ -580,4 +521,347 @@ function Invoke-LdoDetectionGate {
     }
 
     Write-LdoLog -Level SUCCESS -Message "Detection gate: all $($files.Count) rule file(s) passed."
+}
+
+function Get-LdoCustomDetectionRule {
+    <#
+    .SYNOPSIS
+        Lists or gets Microsoft Defender XDR custom detection rules through Microsoft Graph.
+
+    .DESCRIPTION
+        Wraps security/rules/detectionRules with the module's Graph auth and retry stack,
+        following @odata.nextLink paging. On a 403 the log explains the two unlocks: app only
+        callers need CustomDetection.Read.All or ReadWrite.All, and local Azure CLI callers need
+        the tenant to admin consent the delegated CustomDetection permissions to the Azure CLI
+        application (appId 04b07795-8ddb-461a-bbee-02f9e1bf7b46), since the CLI cannot request
+        arbitrary Graph scopes itself.
+
+    .PARAMETER Id
+        Get a single rule by its id.
+
+    .PARAMETER DisplayName
+        Filter the listing to rules with this exact display name (client side).
+
+    .PARAMETER ApiVersion
+        Graph API version. Custom detection rules are beta only today, so beta is the default.
+
+    .PARAMETER MaxRetries
+        Maximum attempts per call. Defaults to 5.
+
+    .EXAMPLE
+        Get-LdoCustomDetectionRule
+
+    .EXAMPLE
+        Get-LdoCustomDetectionRule -DisplayName 'Mass file download by a single user'
+
+    .OUTPUTS
+        System.Object[]
+    #>
+    [CmdletBinding()]
+    [OutputType([object[]])]
+    param(
+        [string]$Id,
+        [string]$DisplayName,
+        [ValidateSet('v1.0', 'beta')][string]$ApiVersion = 'beta',
+        [int]$MaxRetries = 5
+    )
+
+    $base = "https://graph.microsoft.com/$ApiVersion/security/rules/detectionRules"
+
+    try {
+        if ($Id) {
+            return @(Invoke-LdoGraphRequest -Uri "$base/$Id" -MaxRetries $MaxRetries)
+        }
+
+        $all = @()
+        $uri = $base
+        while ($uri) {
+            $resp = Invoke-LdoGraphRequest -Uri $uri -MaxRetries $MaxRetries
+            $all += @($resp.value)
+            $uri = if ($resp.PSObject.Properties['@odata.nextLink']) { $resp.'@odata.nextLink' } else { $null }
+        }
+    }
+    catch {
+        if ("$_" -match '(?i)forbidden|missing application scopes|authorization') {
+            Write-LdoLog -Level ERROR -Message ('Graph refused the detection rules call. App only callers need CustomDetection.Read.All or CustomDetection.ReadWrite.All. For local Azure CLI use, the tenant must admin consent the delegated CustomDetection permissions to the Azure CLI application (appId 04b07795-8ddb-461a-bbee-02f9e1bf7b46); the CLI cannot request those scopes itself.')
+        }
+        throw
+    }
+
+    if ($DisplayName) {
+        $all = @($all | Where-Object { $_.displayName -eq $DisplayName })
+    }
+
+    Write-LdoLog -Level INFO -Message "Fetched $($all.Count) custom detection rule(s)."
+    return $all
+}
+
+function Export-LdoCustomDetectionRule {
+    <#
+    .SYNOPSIS
+        Exports Defender XDR custom detection rules into the analyst YAML layout of
+        terraform-msgraph-xdr-custom-detection-rules.
+
+    .DESCRIPTION
+        The brownfield half of detections as code: every rule in the tenant becomes one YAML file
+        under <OutDir>/<category>/, where the category folder is the kebab case of the rule's
+        first ATT&CK tactic (uncategorised when it has none). Graph camelCase converts to the
+        module's snake_case authoring schema; the SERVER ASSIGNED rule id is kept in the file on
+        purpose, because the Terraform module uses the id as the rule key, so terraform import
+        addresses and every later plan line up (new rules authored by hand should omit id).
+        Legacy shape rules (category, mitreTechniques, impactedAssets, responseActions, schedule
+        period strings) are converted best endeavours, with anything unconvertible emitted as a
+        TODO comment inside the file rather than silently dropped.
+
+    .PARAMETER OutDir
+        Root of the custom-detections layout to write into (created if missing).
+
+    .PARAMETER Id
+        Export a single rule by id.
+
+    .PARAMETER DisplayName
+        Export only rules with this exact display name.
+
+    .PARAMETER ApiVersion
+        Graph API version. Defaults to beta.
+
+    .PARAMETER Force
+        Overwrite files that already exist.
+
+    .PARAMETER Format
+        Yaml (default) writes the analyst YAML files with provenance and TODO comments; Json
+        writes the same snake_case spec as .json (comments cannot travel in JSON, so export notes
+        go to the log). JSON files are a conversion convenience and are not picked up by the
+        Terraform module, which reads .yaml/.yml only.
+
+    .EXAMPLE
+        Export-LdoCustomDetectionRule -OutDir ./custom-detections
+
+    .EXAMPLE
+        Export-LdoCustomDetectionRule -OutDir ./exported -Format Json
+
+    .OUTPUTS
+        System.IO.FileInfo[]
+    #>
+    [CmdletBinding()]
+    [OutputType([System.IO.FileInfo[]])]
+    param(
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$OutDir,
+        [string]$Id,
+        [string]$DisplayName,
+        [ValidateSet('v1.0', 'beta')][string]$ApiVersion = 'beta',
+        [switch]$Force,
+        [ValidateSet('Yaml', 'Json')][string]$Format = 'Yaml'
+    )
+
+    $rules = Get-LdoCustomDetectionRule -Id $Id -DisplayName $DisplayName -ApiVersion $ApiVersion
+    if (-not $rules) {
+        Write-LdoLog -Level WARN -Message 'No custom detection rules to export.'
+        return @()
+    }
+
+    $legacyPeriodMap = @{ '0' = 'PT0S'; '1H' = 'PT1H'; '3H' = 'PT3H'; '12H' = 'PT12H'; '24H' = 'PT24H' }
+    $tactics = @(
+        'Reconnaissance', 'ResourceDevelopment', 'InitialAccess', 'Execution', 'Persistence',
+        'PrivilegeEscalation', 'DefenseEvasion', 'CredentialAccess', 'Discovery', 'LateralMovement',
+        'Collection', 'CommandAndControl', 'Exfiltration', 'Impact'
+    )
+    $groupNames = @{
+        accounts = 'accounts'; amazonResources = 'amazon_resources'; azureResources = 'azure_resources'
+        cloudApplications = 'cloud_applications'; dns = 'dns'; files = 'files'
+        googleCloudResources = 'google_cloud_resources'; hosts = 'hosts'; ips = 'ips'
+        mailClusters = 'mail_clusters'; mailMessages = 'mail_messages'; mailboxes = 'mailboxes'
+        oAuthApplications = 'oauth_applications'; processes = 'processes'
+        registryValues = 'registry_values'; securityGroups = 'security_groups'; urls = 'urls'
+    }
+    $actionNames = @{
+        allowFiles = 'allow_files'; blockFiles = 'block_files'
+        collectInvestigationPackages = 'collect_investigation_packages'; disableUsers = 'disable_users'
+        forceUserPasswordResets = 'force_user_password_resets'; hardDeleteEmails = 'hard_delete_emails'
+        initiateInvestigations = 'initiate_investigations'; isolateDevices = 'isolate_devices'
+        markUsersAsCompromised = 'mark_users_as_compromised'
+        moveEmailsToDeletedItems = 'move_emails_to_deleted_items'; moveEmailsToInbox = 'move_emails_to_inbox'
+        moveEmailsToJunk = 'move_emails_to_junk'; restrictAppExecutions = 'restrict_app_executions'
+        runAntivirusScans = 'run_antivirus_scans'; softDeleteEmails = 'soft_delete_emails'
+        stopAndQuarantineFiles = 'stop_and_quarantine_files'
+    }
+
+    function ConvertTo-SnakeKey {
+        param([string]$Name)
+        if ($Name -eq 'oAuthAppIdColumn') { return 'oauth_app_id_column' }
+        return ([regex]::Replace($Name, '(?<=[a-z0-9])([A-Z])', '_$1')).ToLowerInvariant()
+    }
+
+    function ConvertTo-SnakeItems {
+        param($Items)
+        $converted = @(foreach ($it in @($Items)) {
+                $out = [ordered]@{}
+                foreach ($p in $it.PSObject.Properties) {
+                    if ($p.Name.StartsWith('@') -or $null -eq $p.Value -or "$($p.Value)" -eq '') { continue }
+                    $out[(ConvertTo-SnakeKey -Name $p.Name)] = $p.Value
+                }
+                if ($out.Count -gt 0) { $out }
+            })
+        # The unary comma keeps single item results as arrays through the function return, so
+        # mapping groups always emit as YAML sequences, never collapsed to a lone map.
+        return , $converted
+    }
+
+    New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
+    $written = @()
+
+    foreach ($rule in $rules) {
+        $todos = @()
+        $template = $rule.detectionAction.alertTemplate
+
+        $spec = [ordered]@{}
+        $spec.id = "$($rule.id)"
+        $spec.display_name = $rule.displayName
+        if ($rule.PSObject.Properties['description'] -and $rule.description) { $spec.description = $rule.description }
+
+        $spec.status = if ($rule.PSObject.Properties['status'] -and $rule.status) { "$($rule.status)" }
+        elseif ($rule.PSObject.Properties['isEnabled'] -and -not $rule.isEnabled) { 'disabled' } else { 'enabled' }
+
+        $freq = if ($rule.schedule.PSObject.Properties['frequency'] -and $rule.schedule.frequency) { "$($rule.schedule.frequency)" } else { $null }
+        if (-not $freq) {
+            $period = if ($rule.schedule.PSObject.Properties['period']) { "$($rule.schedule.period)" } else { '' }
+            $freq = $legacyPeriodMap[$period]
+            if (-not $freq) {
+                $freq = 'PT24H'
+                $todos += "legacy schedule period '$period' has no mapping; defaulted to PT24H, review."
+            }
+        }
+        $spec.frequency = $freq
+        $spec.query = $rule.queryCondition.queryText
+
+        $alert = [ordered]@{}
+        if ($template.PSObject.Properties['title'] -and $template.title) { $alert.title = $template.title }
+        if ($template.PSObject.Properties['description'] -and $template.description) { $alert.description = $template.description }
+        $alert.severity = "$($template.severity)"
+        if ($template.PSObject.Properties['recommendedActions'] -and $template.recommendedActions) {
+            $alert.recommended_actions = $template.recommendedActions
+        }
+
+        $mitre = @()
+        if ($template.PSObject.Properties['tactics'] -and $template.tactics) {
+            foreach ($t in @($template.tactics)) {
+                $entry = [ordered]@{ tactic = "$($t.tactic)" }
+                if ($t.PSObject.Properties['techniques'] -and $t.techniques) {
+                    $entry.techniques = @(foreach ($q in @($t.techniques)) {
+                            if ($q.PSObject.Properties['subTechniques'] -and $q.subTechniques) {
+                                [ordered]@{ technique = "$($q.technique)"; sub_techniques = @($q.subTechniques) }
+                            }
+                            else { "$($q.technique)" }
+                        })
+                }
+                $mitre += , $entry
+            }
+        }
+        elseif ($template.PSObject.Properties['category'] -and $template.category) {
+            $legacyTechniques = if ($template.PSObject.Properties['mitreTechniques']) { @($template.mitreTechniques) } else { @() }
+            if ($tactics -contains "$($template.category)") {
+                $entry = [ordered]@{ tactic = "$($template.category)" }
+                if ($legacyTechniques.Count -gt 0) { $entry.techniques = $legacyTechniques }
+                $mitre += , $entry
+            }
+            else {
+                $todos += "legacy category '$($template.category)' is not an ATT&CK tactic; techniques not carried: $($legacyTechniques -join ', ')."
+            }
+        }
+        if ($mitre.Count -gt 0) { $alert.mitre = $mitre }
+
+        if ($template.PSObject.Properties['customDetails'] -and $template.customDetails) {
+            $details = [ordered]@{}
+            foreach ($p in $template.customDetails.PSObject.Properties) {
+                if (-not $p.Name.StartsWith('@')) { $details[$p.Name] = $p.Value }
+            }
+            if ($details.Count -gt 0) { $alert.custom_details = $details }
+        }
+
+        if ($template.PSObject.Properties['entityMappings'] -and $template.entityMappings) {
+            $mappings = [ordered]@{}
+            foreach ($p in $template.entityMappings.PSObject.Properties) {
+                if ($p.Name.StartsWith('@') -or $null -eq $p.Value) { continue }
+                $snakeGroup = if ($groupNames.ContainsKey($p.Name)) { $groupNames[$p.Name] } else { ConvertTo-SnakeKey -Name $p.Name }
+                $items = ConvertTo-SnakeItems -Items $p.Value
+                if ($items.Count -gt 0) { $mappings[$snakeGroup] = $items }
+            }
+            if ($mappings.Count -gt 0) { $alert.entity_mappings = $mappings }
+        }
+        elseif ($template.PSObject.Properties['impactedAssets'] -and $template.impactedAssets) {
+            $todos += "legacy impactedAssets not converted (the module uses entity_mappings); review: $((@($template.impactedAssets) | ForEach-Object { $_.'@odata.type' }) -join ', ')."
+        }
+
+        $spec.alert = $alert
+
+        $scope = if ($rule.detectionAction.PSObject.Properties['organizationalScope']) { $rule.detectionAction.organizationalScope } else { $null }
+        if ($scope) {
+            # Wrapped in @() because an if expression unrolls a single element output to a scalar.
+            $groups = @(if ($scope.PSObject.Properties['deviceGroups'] -and $scope.deviceGroups) { $scope.deviceGroups }
+                elseif ($scope.PSObject.Properties['scopeNames'] -and $scope.scopeNames) { $scope.scopeNames })
+            if ($groups.Count -gt 0) { $spec.device_groups = $groups }
+        }
+
+        if ($rule.detectionAction.PSObject.Properties['automatedActions'] -and $rule.detectionAction.automatedActions) {
+            $actions = [ordered]@{}
+            foreach ($p in $rule.detectionAction.automatedActions.PSObject.Properties) {
+                if ($p.Name.StartsWith('@') -or $null -eq $p.Value -or @($p.Value).Count -eq 0) { continue }
+                $snakeAction = if ($actionNames.ContainsKey($p.Name)) { $actionNames[$p.Name] } else { ConvertTo-SnakeKey -Name $p.Name }
+                $items = ConvertTo-SnakeItems -Items $p.Value
+                if ($items.Count -gt 0) { $actions[$snakeAction] = $items }
+            }
+            if ($actions.Count -gt 0) {
+                $spec.automated_actions = $actions
+                $todos += 'rule carries automated_actions: the module call needs allow_automated_actions = true.'
+            }
+        }
+        elseif ($rule.detectionAction.PSObject.Properties['responseActions'] -and $rule.detectionAction.responseActions) {
+            $todos += 'legacy responseActions not converted (the module uses automated_actions); review the original rule.'
+        }
+
+        $category = 'uncategorised'
+        if ($mitre.Count -gt 0) {
+            $category = ([regex]::Replace("$($mitre[0].tactic)", '(?<=[a-z0-9])([A-Z])', '-$1')).ToLowerInvariant()
+        }
+
+        $slug = ($rule.displayName -replace '[^A-Za-z0-9]+', '-').Trim('-').ToLowerInvariant()
+        if (-not $slug) { $slug = "rule-$($rule.id)" }
+
+        $dir = Join-Path $OutDir $category
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        $ext = if ($Format -eq 'Json') { 'json' } else { 'yaml' }
+        $file = Join-Path $dir "$slug.$ext"
+
+        if ((Test-Path $file) -and -not $Force) {
+            Write-LdoLog -Level WARN -Message "Skipping existing file $file (use -Force to overwrite)."
+            continue
+        }
+
+        if ($Format -eq 'Json') {
+            # JSON carries no comments, so export notes go to the log instead of the file.
+            foreach ($t in $todos) { Write-LdoLog -Level WARN -Message "Export note for ${file}: $t" }
+            Set-Content -Path $file -Value ($spec | ConvertTo-Json -Depth 100)
+            Write-LdoLog -Level SUCCESS -Message "Exported '$($rule.displayName)' to $file"
+            $written += Get-Item $file
+            continue
+        }
+
+        $header = @(
+            '# yaml-language-server: $schema=https://raw.githubusercontent.com/libre-devops/terraform-msgraph-xdr-custom-detection-rules/main/schema/custom-detection.schema.json'
+            '#'
+            "# Exported from Microsoft Defender XDR by Export-LdoCustomDetectionRule on $((Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm'))Z."
+            '# The id is the server assigned rule id, kept on purpose: the Terraform module keys rules by'
+            '# id, so terraform import addresses and later plans line up. New rules authored by hand'
+            '# should omit id. Review this file before committing.'
+        )
+        foreach ($t in $todos) { $header += "# TODO(export): $t" }
+
+        $yaml = ($header -join "`n") + "`n" + (ConvertTo-LdoYaml -InputObject $spec)
+        Set-Content -Path $file -Value $yaml -NoNewline
+        Write-LdoLog -Level SUCCESS -Message "Exported '$($rule.displayName)' to $file"
+        $written += Get-Item $file
+    }
+
+    Write-LdoLog -Level INFO -Message "Exported $($written.Count) of $(@($rules).Count) rule(s) to $OutDir."
+    return $written
 }

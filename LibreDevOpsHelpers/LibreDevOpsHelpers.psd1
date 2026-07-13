@@ -12,7 +12,7 @@
     RootModule = '.\LibreDevOpsHelpers.psm1'
 
     # Version number of this module.
-    ModuleVersion = '2.5.1'
+    ModuleVersion = '2.6.0'
 
     # Supported PSEditions
     # CompatiblePSEditions = @()
@@ -95,11 +95,13 @@
         'LibreDevOpsHelpers.Tenv/LibreDevOpsHelpers.Tenv.psm1',
         'LibreDevOpsHelpers.Terraform/LibreDevOpsHelpers.Terraform.psm1',
         'LibreDevOpsHelpers.Terraform.AzureImport/LibreDevOpsHelpers.Terraform.AzureImport.psm1',
+        'LibreDevOpsHelpers.Terraform.GraphImport/LibreDevOpsHelpers.Terraform.GraphImport.psm1',
         'LibreDevOpsHelpers.TerraformDocs/LibreDevOpsHelpers.TerraformDocs.psm1',
         'LibreDevOpsHelpers.TfLint/LibreDevOpsHelpers.TfLint.psm1',
         'LibreDevOpsHelpers.Trivy/LibreDevOpsHelpers.Trivy.psm1',
         'LibreDevOpsHelpers.Utils/LibreDevOpsHelpers.Utils.psm1',
-        'LibreDevOpsHelpers.Uv/LibreDevOpsHelpers.Uv.psm1'
+        'LibreDevOpsHelpers.Uv/LibreDevOpsHelpers.Uv.psm1',
+        'LibreDevOpsHelpers.Yaml/LibreDevOpsHelpers.Yaml.psm1'
     )
 
 
@@ -144,6 +146,7 @@
         'ConvertFrom-LdoYaml',
         'ConvertTo-LdoBoolean',
         'ConvertTo-LdoCanonicalDetectionRule',
+        'ConvertTo-LdoYaml',
         'ConvertTo-LdoNull',
         'Disconnect-LdoAzureCli',
         'Disconnect-LdoAzurePowerShell',
@@ -153,6 +156,8 @@
         'Format-LdoTerraformOutputs',
         'Format-LdoTerraformVariables',
         'Get-LdoAzureDevOpsOrgId',
+        'Export-LdoCustomDetectionRule',
+        'Get-LdoCustomDetectionRule',
         'Get-LdoDefenderAlert',
         'Get-LdoDefenderAvStatus',
         'Get-LdoFinding',
@@ -176,6 +181,7 @@
         'Get-LdoResourceGroupLock',
         'Get-LdoResourceGroupNamesFromPlan',
         'Get-LdoTerraformFileContent',
+        'Get-LdoTerraformGraphImportResourceId',
         'Get-LdoTerraformImportResourceId',
         'Get-LdoTerraformStackFolders',
         'Get-LdoTraceContext',
@@ -213,6 +219,7 @@
         'Invoke-LdoTerraformApply',
         'Invoke-LdoTerraformDestroy',
         'Invoke-LdoTerraformFmtCheck',
+        'Invoke-LdoTerraformGraphImportFromPlan',
         'Invoke-LdoTerraformImportFromPlan',
         'Invoke-LdoTerraformInit',
         'Invoke-LdoTerraformPlan',

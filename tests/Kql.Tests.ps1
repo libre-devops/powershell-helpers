@@ -206,3 +206,96 @@ alert:
         { Invoke-LdoDetectionGate -Path $empty } | Should -Not -Throw
     }
 }
+
+Describe 'Get-LdoCustomDetectionRule' {
+
+    It 'follows nextLink paging and filters by display name' {
+        InModuleScope LibreDevOpsHelpers.Kql {
+            $script:page = 0
+            Mock Invoke-LdoGraphRequest {
+                $script:page++
+                if ($script:page -eq 1) {
+                    ('{"value":[{"id":"1","displayName":"A"}],"@odata.nextLink":"https://graph.microsoft.com/beta/next"}' | ConvertFrom-Json)
+                }
+                else {
+                    ('{"value":[{"id":"2","displayName":"B"}]}' | ConvertFrom-Json)
+                }
+            }
+            $all = Get-LdoCustomDetectionRule
+            @($all).Count | Should -Be 2
+            Should -Invoke Invoke-LdoGraphRequest -Times 2 -Exactly
+
+            $script:page = 0
+            @(Get-LdoCustomDetectionRule -DisplayName 'B').id | Should -Be '2'
+        }
+    }
+}
+
+Describe 'Export-LdoCustomDetectionRule' -Skip:(-not $yamlReady) {
+
+    BeforeEach {
+        $script:fixture = @'
+{"value":[
+  {"id":"111","displayName":"New Shape Rule","description":"d","status":"enabled",
+   "schedule":{"frequency":"PT1H"},
+   "queryCondition":{"queryText":"EmailEvents\n| project Timestamp, ReportId, RecipientEmailAddress"},
+   "detectionAction":{
+     "alertTemplate":{"title":"t","severity":"medium",
+       "tactics":[{"tactic":"CredentialAccess","techniques":[{"technique":"T1110","subTechniques":["T1110.003"]}]}],
+       "customDetails":{"Count":"FailedCount"},
+       "entityMappings":{"accounts":[{"upnColumn":"AccountUpn","aadUserIdColumn":"AccountObjectId"}]}},
+     "automatedActions":{"isolateDevices":[{"deviceIdColumn":"DeviceId","isolationType":"full"}]}}},
+  {"id":"222","displayName":"Legacy Rule!","isEnabled":false,
+   "schedule":{"period":"12H"},
+   "queryCondition":{"queryText":"DeviceEvents | project Timestamp, ReportId, DeviceId"},
+   "detectionAction":{
+     "alertTemplate":{"severity":"low","category":"Malware","mitreTechniques":["T1059"],
+       "impactedAssets":[{"@odata.type":"#microsoft.graph.security.impactedDeviceAsset","identifier":"deviceId"}]},
+     "organizationalScope":{"scopeType":"deviceGroup","scopeNames":["Workstations"]}}}
+]}
+'@
+    }
+
+    It 'exports rules into the analyst layout with ids, snake case and TODO notes' {
+        $out = Join-Path $TestDrive ("exp-" + [guid]::NewGuid())
+        InModuleScope LibreDevOpsHelpers.Kql -Parameters @{ out = $out; fixture = $script:fixture } {
+            param($out, $fixture)
+            Mock Invoke-LdoGraphRequest { $fixture | ConvertFrom-Json }
+            $files = Export-LdoCustomDetectionRule -OutDir $out
+            @($files).Count | Should -Be 2
+        }
+
+        $newShape = Join-Path $out 'credential-access' 'new-shape-rule.yaml'
+        $legacy = Join-Path $out 'uncategorised' 'legacy-rule.yaml'
+        Test-Path $newShape | Should -BeTrue
+        Test-Path $legacy | Should -BeTrue
+
+        $parsed = ConvertFrom-LdoYaml -Path $newShape
+        "$($parsed.id)" | Should -Be '111'
+        "$($parsed.frequency)" | Should -Be 'PT1H'
+        "$($parsed.alert.mitre[0].techniques[0].sub_techniques[0])" | Should -Be 'T1110.003'
+        "$($parsed.alert.entity_mappings.accounts[0].aad_user_id_column)" | Should -Be 'AccountObjectId'
+        "$($parsed.automated_actions.isolate_devices[0].isolation_type)" | Should -Be 'full'
+        (Get-Content -Raw $newShape) | Should -Match 'allow_automated_actions = true'
+
+        $legacyParsed = ConvertFrom-LdoYaml -Path $legacy
+        "$($legacyParsed.status)" | Should -Be 'disabled'
+        "$($legacyParsed.frequency)" | Should -Be 'PT12H'
+        @($legacyParsed.device_groups)[0] | Should -Be 'Workstations'
+        $legacyRaw = Get-Content -Raw $legacy
+        $legacyRaw | Should -Match "TODO\(export\): legacy category 'Malware'"
+        $legacyRaw | Should -Match 'TODO\(export\): legacy impactedAssets'
+    }
+
+    It 'exports the same spec as JSON when asked' {
+        $out = Join-Path $TestDrive ("expj-" + [guid]::NewGuid())
+        InModuleScope LibreDevOpsHelpers.Kql -Parameters @{ out = $out; fixture = $script:fixture } {
+            param($out, $fixture)
+            Mock Invoke-LdoGraphRequest { $fixture | ConvertFrom-Json }
+            Export-LdoCustomDetectionRule -OutDir $out -Format Json | Out-Null
+        }
+        $json = Get-Content -Raw (Join-Path $out 'credential-access' 'new-shape-rule.json') | ConvertFrom-Json
+        "$($json.id)" | Should -Be '111'
+        "$($json.alert.entity_mappings.accounts[0].upn_column)" | Should -Be 'AccountUpn'
+    }
+}
