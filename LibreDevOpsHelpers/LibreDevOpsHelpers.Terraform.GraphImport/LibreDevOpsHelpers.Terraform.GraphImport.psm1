@@ -120,7 +120,10 @@ function Invoke-LdoTerraformGraphImportFromPlan {
         [string]$Manifest = './graph-import-map.csv'
     )
 
-    Assert-LdoCommand -Name 'terraform'
+    # A dry run never invokes terraform, so the binary is only required when importing for real.
+    if (-not $DryRun) {
+        Assert-LdoCommand -Name 'terraform'
+    }
 
     if (-not (Test-Path $CodePath -PathType Container)) {
         throw "Terraform code path not found: $CodePath"
