@@ -628,6 +628,12 @@ function Export-LdoCustomDetectionRule {
     .PARAMETER Force
         Overwrite files that already exist.
 
+    .PARAMETER ExcludeId
+        Leave the server assigned rule id out of the exported files. Use for BACKUPS and cross
+        tenant portability, where the files should re-create rules as new instead of aligning with
+        existing ones; without it the id is kept so terraform import addresses and plans line up.
+        Remove-LdoDetectionRuleId strips ids from already exported files.
+
     .PARAMETER Format
         Yaml (default) writes the analyst YAML files with provenance and TODO comments; Json
         writes the same snake_case spec as .json (comments cannot travel in JSON, so export notes
@@ -651,7 +657,8 @@ function Export-LdoCustomDetectionRule {
         [string]$DisplayName,
         [ValidateSet('v1.0', 'beta')][string]$ApiVersion = 'beta',
         [switch]$Force,
-        [ValidateSet('Yaml', 'Json')][string]$Format = 'Yaml'
+        [ValidateSet('Yaml', 'Json')][string]$Format = 'Yaml',
+        [switch]$ExcludeId
     )
 
     $rules = Get-LdoCustomDetectionRule -Id $Id -DisplayName $DisplayName -ApiVersion $ApiVersion
@@ -715,7 +722,7 @@ function Export-LdoCustomDetectionRule {
         $template = $rule.detectionAction.alertTemplate
 
         $spec = [ordered]@{}
-        $spec.id = "$($rule.id)"
+        if (-not $ExcludeId) { $spec.id = "$($rule.id)" }
         $spec.display_name = $rule.displayName
         if ($rule.PSObject.Properties['description'] -and $rule.description) { $spec.description = $rule.description }
 
@@ -850,10 +857,14 @@ function Export-LdoCustomDetectionRule {
             '# yaml-language-server: $schema=https://raw.githubusercontent.com/libre-devops/terraform-msgraph-xdr-custom-detection-rules/main/schema/custom-detection.schema.json'
             '#'
             "# Exported from Microsoft Defender XDR by Export-LdoCustomDetectionRule on $((Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm'))Z."
-            '# The id is the server assigned rule id, kept on purpose: the Terraform module keys rules by'
-            '# id, so terraform import addresses and later plans line up. New rules authored by hand'
-            '# should omit id. Review this file before committing.'
         )
+        if (-not $ExcludeId) {
+            $header += @(
+                '# The id is the server assigned rule id, kept on purpose: the Terraform module keys rules by'
+                '# id, so terraform import addresses and later plans line up. New rules authored by hand'
+                '# should omit id. Review this file before committing.'
+            )
+        }
         foreach ($t in $todos) { $header += "# TODO(export): $t" }
 
         $yaml = ($header -join "`n") + "`n" + (ConvertTo-LdoYaml -InputObject $spec)
@@ -864,4 +875,67 @@ function Export-LdoCustomDetectionRule {
 
     Write-LdoLog -Level INFO -Message "Exported $($written.Count) of $(@($rules).Count) rule(s) to $OutDir."
     return $written
+}
+
+function Remove-LdoDetectionRuleId {
+    <#
+    .SYNOPSIS
+        Strips the server assigned id from exported detection rule files.
+
+    .DESCRIPTION
+        Exported rules keep the server assigned id so terraform import lines up; a BACKUP meant to
+        re-create rules as new (in this tenant or another) must not carry it. This removes the top
+        level id from every rule file under a path: YAML files by precise text surgery (only a
+        column zero id: line goes, comments and formatting stay), JSON files by rewriting the
+        object without id. Files without an id are left untouched.
+
+    .PARAMETER Path
+        A rule file, or a directory walked recursively for *.yaml, *.yml and *.json.
+
+    .PARAMETER Backup
+        Write a .bak copy beside each file before changing it.
+
+    .EXAMPLE
+        Remove-LdoDetectionRuleId -Path ./exported-rules -Backup
+
+    .OUTPUTS
+        System.IO.FileInfo[]. The files that were changed.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.IO.FileInfo[]])]
+    param(
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$Path,
+        [switch]$Backup
+    )
+
+    if (-not (Test-Path $Path)) { throw "Remove-LdoDetectionRuleId: path not found: $Path" }
+
+    # Wrapped in @() because an if expression unrolls a single element output to a scalar.
+    $files = @(if (Test-Path $Path -PathType Container) {
+            Get-ChildItem -Path $Path -Recurse -File | Where-Object { $_.Extension -in '.yaml', '.yml', '.json' }
+        }
+        else { Get-Item $Path })
+
+    $changed = @()
+    foreach ($f in $files) {
+        if ($f.Extension -eq '.json') {
+            $obj = Get-Content -Raw $f.FullName | ConvertFrom-Json
+            if (-not $obj.PSObject.Properties['id']) { continue }
+            if ($Backup) { Copy-Item $f.FullName "$($f.FullName).bak" -Force }
+            $obj.PSObject.Properties.Remove('id')
+            Set-Content -Path $f.FullName -Value ($obj | ConvertTo-Json -Depth 100)
+        }
+        else {
+            $raw = Get-Content -Raw $f.FullName
+            $stripped = [regex]::Replace($raw, '(?m)^id:[^\r\n]*\r?\n', '')
+            if ($stripped -eq $raw) { continue }
+            if ($Backup) { Copy-Item $f.FullName "$($f.FullName).bak" -Force }
+            Set-Content -Path $f.FullName -Value $stripped -NoNewline
+        }
+        Write-LdoLog -Level SUCCESS -Message "Removed the rule id from $($f.FullName)"
+        $changed += Get-Item $f.FullName
+    }
+
+    Write-LdoLog -Level INFO -Message "Removed ids from $($changed.Count) of $($files.Count) file(s)."
+    return $changed
 }

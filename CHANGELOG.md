@@ -2,6 +2,16 @@
 
 All notable changes to LibreDevOpsHelpers are recorded here.
 
+## 2.7.0
+
+### Added
+- `Remove-LdoDetectionRuleId`: strips the server assigned id from exported detection rule files
+  (YAML by precise text surgery so comments survive, JSON by rewrite; `-Backup` writes .bak
+  copies). For backups and cross tenant portability, where files should re-create rules as new
+  instead of aligning with existing ones.
+- `Export-LdoCustomDetectionRule -ExcludeId`: the same intent at export time; the id and its
+  provenance note never enter the files.
+
 ## 2.6.0
 
 ### Added

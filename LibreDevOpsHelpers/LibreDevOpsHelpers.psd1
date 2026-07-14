@@ -12,7 +12,7 @@
     RootModule = '.\LibreDevOpsHelpers.psm1'
 
     # Version number of this module.
-    ModuleVersion = '2.6.0'
+    ModuleVersion = '2.7.0'
 
     # Supported PSEditions
     # CompatiblePSEditions = @()
@@ -246,6 +246,7 @@
         'New-LdoVenv',
         'Push-LdoDockerImage',
         'Register-LdoPesterAssertion',
+        'Remove-LdoDetectionRuleId',
         'Remove-LdoFunctionAppCurrentIpRule',
         'Remove-LdoKeyVaultCurrentIpRule',
         'Remove-LdoNsgRule',

@@ -299,3 +299,56 @@ Describe 'Export-LdoCustomDetectionRule' -Skip:(-not $yamlReady) {
         "$($json.alert.entity_mappings.accounts[0].upn_column)" | Should -Be 'AccountUpn'
     }
 }
+
+Describe 'Remove-LdoDetectionRuleId' {
+
+    It 'strips the top level id from YAML, keeps comments, and backs up' {
+        $file = Join-Path $TestDrive 'exported.yaml'
+        Set-Content -Path $file -NoNewline -Value @'
+# provenance comment
+id: "16829"
+display_name: Exported rule
+alert:
+  severity: low
+  custom_details:
+    RuleId: SomeColumn
+'@
+        $changed = Remove-LdoDetectionRuleId -Path $file -Backup
+        @($changed).Count | Should -Be 1
+        $raw = Get-Content -Raw $file
+        $raw | Should -Not -Match '(?m)^id:'
+        $raw | Should -Match '# provenance comment'
+        $raw | Should -Match 'RuleId: SomeColumn'
+        Test-Path "$file.bak" | Should -BeTrue
+    }
+
+    It 'strips id from JSON files and skips files without one' {
+        $dir = Join-Path $TestDrive ("strip-" + [guid]::NewGuid())
+        New-Item -ItemType Directory -Path $dir | Out-Null
+        Set-Content -Path (Join-Path $dir 'a.json') -Value '{"id":"1","display_name":"a"}'
+        Set-Content -Path (Join-Path $dir 'b.yaml') -Value "display_name: no id here"
+        $changed = Remove-LdoDetectionRuleId -Path $dir
+        @($changed).Count | Should -Be 1
+        (Get-Content -Raw (Join-Path $dir 'a.json') | ConvertFrom-Json).PSObject.Properties['id'] |
+            Should -BeNullOrEmpty
+    }
+}
+
+Describe 'Export-LdoCustomDetectionRule -ExcludeId' -Skip:(-not $yamlReady) {
+
+    It 'omits the id and its provenance note for backup exports' {
+        $out = Join-Path $TestDrive ("expx-" + [guid]::NewGuid())
+        InModuleScope LibreDevOpsHelpers.Kql -Parameters @{ out = $out } {
+            param($out)
+            Mock Invoke-LdoGraphRequest {
+                ('{"value":[{"id":"999","displayName":"Backup Me","status":"enabled","schedule":{"frequency":"PT1H"},"queryCondition":{"queryText":"EmailEvents | project Timestamp, ReportId"},"detectionAction":{"alertTemplate":{"severity":"low","tactics":[{"tactic":"Execution","techniques":[{"technique":"T1204"}]}]}}}]}' | ConvertFrom-Json)
+            }
+            Export-LdoCustomDetectionRule -OutDir $out -ExcludeId | Out-Null
+        }
+        $file = Join-Path $out 'execution' 'backup-me.yaml'
+        $raw = Get-Content -Raw $file
+        $raw | Should -Not -Match '(?m)^id:'
+        $raw | Should -Not -Match 'kept on purpose'
+        "$((ConvertFrom-LdoYaml -Path $file).display_name)" | Should -Be 'Backup Me'
+    }
+}
