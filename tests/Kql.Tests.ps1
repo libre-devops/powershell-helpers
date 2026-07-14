@@ -424,6 +424,21 @@ automated_actions:
         $rule = '{"display_name":"x","query":"EmailEvents","frequency":"PT1H","alert":{"severity":"low"}}' | ConvertFrom-Json
         { ConvertTo-LdoDetectionRuleBody -Rule $rule } | Should -Throw '*no rule id*'
     }
+
+    It 'keeps an id carried in the rule file rather than the file name' {
+        # The exporter writes the server-assigned id into the file so terraform import lines up; it
+        # must win over the file name regardless of the shape ConvertFrom-LdoYaml returns.
+        $file = Join-Path $TestDrive 'file-name-differs.yaml'
+        Set-Content -Path $file -Value "id: 11112222-3333-4444-5555-666677778888`n$script:ruleYaml"
+        (ConvertTo-LdoDetectionRuleBody -Path $file).id | Should -Be '11112222-3333-4444-5555-666677778888'
+    }
+
+    It 'reads an id from a hashtable-shaped rule (dictionary parse)' {
+        # A hashtable does not surface keys via PSObject.Properties, so id resolution must run after
+        # the JSON round trip; a raw-parse read would miss this id.
+        $rule = @{ display_name = 'h'; query = 'EmailEvents'; frequency = 'PT1H'; id = 'hash-id-9999'; alert = @{ severity = 'low' } }
+        (ConvertTo-LdoDetectionRuleBody -Rule $rule).id | Should -Be 'hash-id-9999'
+    }
 }
 
 Describe 'Test-LdoDetectionRuleDeployment' -Skip:(-not $yamlReady) {

@@ -13,13 +13,30 @@ function Install-LdoKustoLanguage {
         happens, so repeated calls are cheap and offline friendly.
 
     .PARAMETER Version
-        NuGet package version to install. Defaults to latest.
+        NuGet package version to install. Defaults to latest. For a security-critical deployment,
+        pin an explicit version and pair it with -ExpectedSha256 so the loaded assembly cannot change
+        without notice.
 
     .PARAMETER CacheDir
         Directory the assembly is cached in. Defaults to ~/.ldo/kusto-language.
 
+    .PARAMETER ExpectedSha256
+        SHA-256 hash the assembly must match before it is loaded. The cross-platform integrity gate:
+        verified against both a fresh download and a possibly-tampered cached copy, and a mismatch
+        refuses to load. Recommended for any security-critical use since this function Add-Types
+        arbitrary code into the process.
+
+    .PARAMETER RequireSignature
+        Fail unless the assembly carries a valid Microsoft Authenticode signature. Enforceable only
+        where the platform supports Authenticode (Windows); on other platforms the check cannot run
+        and this switch throws, so pin with -ExpectedSha256 there instead. Without this switch the
+        signature is checked best-effort and only warned about.
+
     .EXAMPLE
         Install-LdoKustoLanguage
+
+    .EXAMPLE
+        Install-LdoKustoLanguage -Version '11.13.0' -ExpectedSha256 'ABC123...'
 
     .OUTPUTS
         System.String. The path of the loaded assembly.
@@ -28,7 +45,9 @@ function Install-LdoKustoLanguage {
     [OutputType([string])]
     param(
         [string]$Version = 'latest',
-        [string]$CacheDir = (Join-Path $HOME '.ldo' 'kusto-language')
+        [string]$CacheDir = (Join-Path $HOME '.ldo' 'kusto-language'),
+        [string]$ExpectedSha256,
+        [switch]$RequireSignature
     )
 
     if ('Kusto.Language.KustoCode' -as [type]) {
@@ -76,6 +95,51 @@ function Install-LdoKustoLanguage {
         }
         finally {
             Remove-Item -Path $work -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    # Integrity gate before loading code into the process. The SHA-256 pin is the cross-platform
+    # guarantee: verified against both a fresh download and a possibly-tampered cache, refusing to
+    # load on a mismatch. Authenticode is verified where the platform supports it and is otherwise
+    # advisory, so an unpinned load on a platform that cannot check signatures is warned about
+    # rather than trusted silently.
+    if ($ExpectedSha256) {
+        $wanted = ($ExpectedSha256 -replace '\s', '').ToUpperInvariant()
+        $actual = (Get-FileHash -Path $cached.FullName -Algorithm SHA256).Hash.ToUpperInvariant()
+        if ($actual -ne $wanted) {
+            throw "Install-LdoKustoLanguage: SHA-256 mismatch for $($cached.FullName). Expected $wanted, got $actual. Refusing to load."
+        }
+        Write-LdoLog -Level SUCCESS -Message 'Kusto.Language SHA-256 verified.'
+    }
+
+    # Get-AuthenticodeSignature is a Windows-only cmdlet (it is absent on Linux/macOS PowerShell), so
+    # verify a real signature only where it exists; treat NotSupported the same as absent.
+    $sig = if (Get-Command Get-AuthenticodeSignature -ErrorAction SilentlyContinue) {
+        Get-AuthenticodeSignature -FilePath $cached.FullName
+    }
+    else { $null }
+
+    if ($sig -and $sig.Status -eq 'Valid') {
+        $signer = "$($sig.SignerCertificate.Subject)"
+        if ($signer -notmatch '(?i)Microsoft') {
+            throw "Install-LdoKustoLanguage: Authenticode signer is not Microsoft ($signer). Refusing to load."
+        }
+        Write-LdoLog -Level SUCCESS -Message 'Kusto.Language Authenticode signature valid (Microsoft).'
+    }
+    elseif ($sig -and $sig.Status -ne 'NotSupported') {
+        # The platform can check and the signature is bad (NotSigned, HashMismatch, ...).
+        if ($RequireSignature -or -not $ExpectedSha256) {
+            throw "Install-LdoKustoLanguage: Authenticode status is '$($sig.Status)' for $($cached.FullName). Refusing to load (pin with -ExpectedSha256 or supply a signed assembly)."
+        }
+        Write-LdoLog -Level WARN -Message "Kusto.Language Authenticode status is '$($sig.Status)'; loading on the strength of the verified SHA-256 pin."
+    }
+    else {
+        # Authenticode cannot be verified on this platform.
+        if ($RequireSignature) {
+            throw 'Install-LdoKustoLanguage: -RequireSignature was set but Authenticode cannot be verified on this platform; pin with -ExpectedSha256 instead.'
+        }
+        if (-not $ExpectedSha256) {
+            Write-LdoLog -Level WARN -Message 'Cannot verify Kusto.Language Authenticode on this platform; pass -ExpectedSha256 to pin the assembly for a security-critical load.'
         }
     }
 
@@ -570,15 +634,17 @@ function Get-LdoCustomDetectionRule {
 
     try {
         if ($Id) {
-            return @(Invoke-LdoGraphRequest -Uri "$base/$Id" -MaxRetries $MaxRetries)
+            return @(Invoke-LdoGraphRequest -Uri "$base/$([uri]::EscapeDataString($Id))" -MaxRetries $MaxRetries)
         }
 
         $all = @()
         $uri = $base
         while ($uri) {
             $resp = Invoke-LdoGraphRequest -Uri $uri -MaxRetries $MaxRetries
-            $all += @($resp.value)
-            $uri = if ($resp.PSObject.Properties['@odata.nextLink']) { $resp.'@odata.nextLink' } else { $null }
+            # Guard the list shape: an unexpected or error-shaped 200 body without a value property
+            # would throw under StrictMode and mask the real response, so treat it as no rows.
+            if ($resp -and $resp.PSObject.Properties['value']) { $all += @($resp.value) }
+            $uri = if ($resp -and $resp.PSObject.Properties['@odata.nextLink']) { $resp.'@odata.nextLink' } else { $null }
         }
     }
     catch {
@@ -982,10 +1048,6 @@ function ConvertTo-LdoDetectionRuleBody {
     if ($PSCmdlet.ParameterSetName -eq 'Path') {
         if (-not (Test-Path $Path)) { throw "ConvertTo-LdoDetectionRuleBody: file not found: $Path" }
         $Rule = ConvertFrom-LdoYaml -Path $Path
-        if (-not $Id) {
-            $Id = if ($Rule.PSObject.Properties['id'] -and $Rule.id) { "$($Rule.id)" }
-            else { [System.IO.Path]::GetFileNameWithoutExtension($Path) }
-        }
     }
 
     # Round trip through JSON for a uniform PSCustomObject tree, then canonicalise values the same
@@ -993,10 +1055,13 @@ function ConvertTo-LdoDetectionRuleBody {
     $r = ($Rule | ConvertTo-Json -Depth 100) | ConvertFrom-Json
     $r = ConvertTo-LdoCanonicalDetectionRule -Rule $r
 
-    if (-not $Id) {
-        $Id = if ($r.PSObject.Properties['id'] -and $r.id) { "$($r.id)" }
-        else { throw 'ConvertTo-LdoDetectionRuleBody: no rule id (set id in the rule, pass -Id, or use -Path so the file name applies).' }
-    }
+    # Resolve the id only after the round trip: $r is reliably a PSCustomObject, so .id surfaces
+    # whether ConvertFrom-LdoYaml returned a hashtable (mikefarah yq) or a PSCustomObject. Reading id
+    # off the raw parse would miss a dictionary key. An explicit -Id wins; then the rule's own id
+    # (the exporter keeps it so terraform import lines up); then, only for -Path, the file name.
+    if (-not $Id -and $r.PSObject.Properties['id'] -and $r.id) { $Id = "$($r.id)" }
+    if (-not $Id -and $PSCmdlet.ParameterSetName -eq 'Path') { $Id = [System.IO.Path]::GetFileNameWithoutExtension($Path) }
+    if (-not $Id) { throw 'ConvertTo-LdoDetectionRuleBody: no rule id (set id in the rule, pass -Id, or use -Path so the file name applies).' }
 
     $groupNames = @{
         accounts = 'accounts'; amazon_resources = 'amazonResources'; azure_resources = 'azureResources'

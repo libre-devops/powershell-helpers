@@ -40,10 +40,10 @@ function Set-LdoLogLevel {
         Sets the minimum level that Write-LdoLog will emit.
 
     .DESCRIPTION
-        Messages below the configured level are dropped. The default is DEBUG, which
-        shows everything (DEBUG still also requires $DebugPreference to be set, as it
-        is routed through Write-Debug). The initial value can also be supplied via the
-        LDO_LOG_LEVEL environment variable.
+        Messages below the configured level are dropped. The default floor is INFO, so TRACE and
+        DEBUG are suppressed until you lower the level (and DEBUG additionally requires
+        $DebugPreference to be set, since it is routed through Write-Debug). The initial value can
+        also be supplied via the LDO_LOG_LEVEL environment variable.
 
     .PARAMETER Level
         One of TRACE, DEBUG, INFO, WARN, ERROR, FATAL. SUCCESS is treated at the same

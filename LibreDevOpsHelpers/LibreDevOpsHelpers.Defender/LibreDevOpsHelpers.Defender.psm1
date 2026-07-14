@@ -303,9 +303,12 @@ function Invoke-LdoDefenderDeviceIsolation {
     $body = @{ Comment = $Comment }
     if (-not $Release) { $body['IsolationType'] = $IsolationType }
 
+    # Escape the id into the path: these are destructive containment calls, so a value carrying a
+    # slash or query character must not be allowed to reshape the target URI.
+    $deviceSegment = [uri]::EscapeDataString($DeviceId)
     Write-LdoLog -Level INFO -Message "Defender for Endpoint $action on device $DeviceId."
     $response = Invoke-LdoGraphRequest -Method Post `
-        -Uri "$script:LdoMdeApiResource/api/machines/$DeviceId/$action" `
+        -Uri "$script:LdoMdeApiResource/api/machines/$deviceSegment/$action" `
         -Resource $script:LdoMdeApiResource `
         -Body $body
     Write-LdoLog -Level SUCCESS -Message "Submitted $action for device $DeviceId."
@@ -344,9 +347,10 @@ function Invoke-LdoDefenderAvScan {
         [string]$Comment = 'Scan triggered via LibreDevOpsHelpers'
     )
 
+    $deviceSegment = [uri]::EscapeDataString($DeviceId)
     Write-LdoLog -Level INFO -Message "Defender for Endpoint $ScanType AV scan on device $DeviceId."
     $response = Invoke-LdoGraphRequest -Method Post `
-        -Uri "$script:LdoMdeApiResource/api/machines/$DeviceId/runAntiVirusScan" `
+        -Uri "$script:LdoMdeApiResource/api/machines/$deviceSegment/runAntiVirusScan" `
         -Resource $script:LdoMdeApiResource `
         -Body @{ Comment = $Comment; ScanType = $ScanType }
     Write-LdoLog -Level SUCCESS -Message "Submitted $ScanType AV scan for device $DeviceId."

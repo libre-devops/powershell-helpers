@@ -4,8 +4,9 @@ Set-StrictMode -Version Latest
 # These assume an active Az context is already established (Connect-AzAccount or a
 # managed identity login) before any token is requested.
 
-# Per-resource token cache. Keyed by resource URL so a script can hold tokens for
-# more than one audience at once.
+# Token cache keyed by "<tenant>|<account>|<resource>" so a script can hold tokens for more than one
+# audience at once, and a change of Az context (a different tenant or identity) never reuses a token
+# minted for the previous context.
 $script:LdoGraphTokenCache = @{ }
 
 function Get-LdoHttpStatusFromError {
@@ -127,7 +128,13 @@ function Invoke-LdoWithRetry {
         Base delay for the first backoff. Defaults to 2.
 
     .PARAMETER MaxDelaySeconds
-        Upper bound on any single delay. Defaults to 60.
+        Upper bound on the exponential backoff for a single delay. Defaults to 60. A server-directed
+        Retry-After is honoured in full and bounded by MaxRetryAfterSeconds instead, not this cap.
+
+    .PARAMETER MaxRetryAfterSeconds
+        Upper bound on a server-directed Retry-After delay. Defaults to 300. The server's Retry-After
+        wins over the exponential backoff (retrying before its stated window just throttles again),
+        capped here so a broken or hostile server cannot stall the run indefinitely.
 
     .PARAMETER RetryStatusCodes
         HTTP status codes that are treated as transient. Defaults to 408, 429, 500, 502,
@@ -160,6 +167,8 @@ function Invoke-LdoWithRetry {
 
         [double]$MaxDelaySeconds = 60,
 
+        [double]$MaxRetryAfterSeconds = 300,
+
         [int[]]$RetryStatusCodes = @(408, 429, 500, 502, 503, 504),
 
         [scriptblock]$OnRetry
@@ -184,7 +193,10 @@ function Invoke-LdoWithRetry {
 
             $delay = [math]::Min($MaxDelaySeconds, $InitialDelaySeconds * [math]::Pow(2, $attempt - 1))
             $retryAfter = Get-LdoRetryAfterSeconds -ErrorRecord $err
-            if ($null -ne $retryAfter) { $delay = [math]::Min($MaxDelaySeconds, $retryAfter) }
+            # A server-directed Retry-After overrides the backoff and is honoured in full: clamping it
+            # to the smaller backoff ceiling would retry inside the throttle window and 429 again. It
+            # is bounded only by MaxRetryAfterSeconds so a broken server cannot stall the run forever.
+            if ($null -ne $retryAfter) { $delay = [math]::Min($MaxRetryAfterSeconds, $retryAfter) }
             $delay = $delay + (Get-Random -Minimum 0.0 -Maximum 1.0)
 
             if ($OnRetry) {
@@ -235,7 +247,15 @@ function Get-LdoGraphToken {
     )
 
     $now = [datetimeoffset]::UtcNow
-    $cached = $script:LdoGraphTokenCache[$Resource]
+
+    # Key the cache by the active context (tenant + account) as well as the resource, so a script
+    # that switches Az context (Connect-AzAccount to a different tenant or identity) never reuses a
+    # token minted for the previous context. Server-side revocation is already handled by the 401
+    # refresh path; this closes the context-switch gap.
+    $context = try { Get-AzContext -ErrorAction SilentlyContinue } catch { $null }
+    $scopeKey = if ($context) { "$($context.Tenant.Id)|$($context.Account.Id)" } else { 'no-context' }
+    $cacheKey = "$scopeKey|$Resource"
+    $cached = $script:LdoGraphTokenCache[$cacheKey]
 
     if (-not $Force -and $cached -and $now -lt $cached.ExpiresOn.AddMinutes(-1 * $RefreshMarginMinutes)) {
         return $cached.Token
@@ -262,7 +282,7 @@ function Get-LdoGraphToken {
     }
 
     $expiresOn = if ($response.ExpiresOn) { [datetimeoffset]$response.ExpiresOn } else { $now.AddMinutes(50) }
-    $script:LdoGraphTokenCache[$Resource] = [pscustomobject]@{ Token = $token; ExpiresOn = $expiresOn }
+    $script:LdoGraphTokenCache[$cacheKey] = [pscustomobject]@{ Token = $token; ExpiresOn = $expiresOn }
 
     Write-LdoLog -Level INFO -Message "Token for $Resource ready, expires $($expiresOn.ToString('u'))"
     return $token
@@ -289,7 +309,10 @@ function Clear-LdoGraphTokenCache {
     )
 
     if ($Resource) {
-        $script:LdoGraphTokenCache.Remove($Resource) | Out-Null
+        # Keys are "<tenant>|<account>|<resource>", so clear every context's entry for this resource.
+        $suffix = "|$Resource"
+        $doomed = @($script:LdoGraphTokenCache.Keys | Where-Object { $_.EndsWith($suffix) })
+        foreach ($key in $doomed) { $script:LdoGraphTokenCache.Remove($key) | Out-Null }
     }
     else {
         $script:LdoGraphTokenCache = @{ }

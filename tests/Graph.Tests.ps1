@@ -126,4 +126,25 @@ Describe 'Get-LdoGraphToken and Clear-LdoGraphTokenCache' {
             Should -Invoke Get-AzAccessToken -Times 2 -Exactly
         }
     }
+
+    It 'does not reuse a token across an Az context switch' {
+        InModuleScope LibreDevOpsHelpers.Graph {
+            # Same resource, different tenant: the cache must not hand back the first tenant's token.
+            $script:ctxTenant = 'tenant-a'
+            Mock Get-AzContext {
+                [pscustomobject]@{
+                    Tenant  = [pscustomobject]@{ Id = $script:ctxTenant }
+                    Account = [pscustomobject]@{ Id = 'acct' }
+                }
+            }
+            Mock Get-AzAccessToken {
+                [pscustomobject]@{ Token = "tok-$script:ctxTenant"; ExpiresOn = [datetimeoffset]::UtcNow.AddHours(1) }
+            }
+            Clear-LdoGraphTokenCache
+            Get-LdoGraphToken -Resource 'https://ctx.test' | Should -Be 'tok-tenant-a'
+            $script:ctxTenant = 'tenant-b'
+            Get-LdoGraphToken -Resource 'https://ctx.test' | Should -Be 'tok-tenant-b'
+            Should -Invoke Get-AzAccessToken -Times 2 -Exactly
+        }
+    }
 }
