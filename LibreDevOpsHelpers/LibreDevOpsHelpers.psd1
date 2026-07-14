@@ -12,7 +12,7 @@
     RootModule = '.\LibreDevOpsHelpers.psm1'
 
     # Version number of this module.
-    ModuleVersion = '2.7.0'
+    ModuleVersion = '2.8.0'
 
     # Supported PSEditions
     # CompatiblePSEditions = @()
@@ -146,6 +146,7 @@
         'ConvertFrom-LdoYaml',
         'ConvertTo-LdoBoolean',
         'ConvertTo-LdoCanonicalDetectionRule',
+        'ConvertTo-LdoDetectionRuleBody',
         'ConvertTo-LdoYaml',
         'ConvertTo-LdoNull',
         'Disconnect-LdoAzureCli',
@@ -273,6 +274,7 @@
         'Test-LdoAzurePowerShellConnection',
         'Test-LdoCommandOutputMatch',
         'Test-LdoDefenderHuntingQuery',
+        'Test-LdoDetectionRuleDeployment',
         'Test-LdoDetectionRuleFile',
         'Test-LdoGlab',
         'Test-LdoKqlSyntax',

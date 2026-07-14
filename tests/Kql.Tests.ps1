@@ -352,3 +352,135 @@ Describe 'Export-LdoCustomDetectionRule -ExcludeId' -Skip:(-not $yamlReady) {
         "$((ConvertFrom-LdoYaml -Path $file).display_name)" | Should -Be 'Backup Me'
     }
 }
+
+Describe 'ConvertTo-LdoDetectionRuleBody' -Skip:(-not $yamlReady) {
+
+    BeforeEach {
+        $script:ruleYaml = @'
+display_name: Body conversion rule
+description: rule description
+status: Enabled
+frequency: pt3h
+query: |
+  EmailEvents
+  | project Timestamp, ReportId, RecipientEmailAddress, NetworkMessageId, SenderFromAddress, Subject
+alert:
+  severity: Medium
+  mitre:
+    - tactic: initial access
+      techniques: [t1566]
+    - tactic: Execution
+      techniques: [T1204]
+  custom_details:
+    Subject: Subject
+  entity_mappings:
+    mailboxes:
+      - primary_address_column: RecipientEmailAddress
+    mail_messages:
+      - network_message_id_column: NetworkMessageId
+        recipient_column: RecipientEmailAddress
+        sender_column: SenderFromAddress
+automated_actions:
+  isolate_devices:
+    - device_id_column: DeviceId
+      isolation_type: Full
+'@
+    }
+
+    It 'builds the Graph body: canonical values, camelCase keys, first tactic only' {
+        $file = Join-Path $TestDrive 'convert-me.yaml'
+        Set-Content -Path $file -Value $script:ruleYaml
+        $body = ConvertTo-LdoDetectionRuleBody -Path $file
+
+        $body.id | Should -Be 'convert-me'
+        $body.displayName | Should -Be 'Body conversion rule'
+        $body.status | Should -Be 'enabled'
+        $body.schedule.frequency | Should -Be 'PT3H'
+        $body.queryCondition.queryText | Should -Match 'EmailEvents'
+
+        $t = $body.detectionAction.alertTemplate
+        $t.severity | Should -Be 'medium'
+        $t.title | Should -Be 'Body conversion rule'
+        $t.description | Should -Be 'rule description'
+        @($t.tactics).Count | Should -Be 1
+        $t.tactics[0].tactic | Should -Be 'InitialAccess'
+        $t.tactics[0].techniques[0].technique | Should -Be 'T1566'
+        $t.customDetails.Subject | Should -Be 'Subject'
+        $t.entityMappings.mailboxes[0].primaryAddressColumn | Should -Be 'RecipientEmailAddress'
+        $t.entityMappings.mailMessages[0].networkMessageIdColumn | Should -Be 'NetworkMessageId'
+
+        $body.detectionAction.automatedActions.isolateDevices[0].deviceIdColumn | Should -Be 'DeviceId'
+        $body.detectionAction.automatedActions.isolateDevices[0].isolationType | Should -Be 'full'
+    }
+
+    It 'round trips an exported oauth mapping to the Graph casing' {
+        $rule = '{"display_name":"o","query":"CloudAppEvents | project Timestamp, ReportId","frequency":"PT1H","alert":{"severity":"low","entity_mappings":{"oauth_applications":[{"oauth_app_id_column":"OAuthAppId"}]}}}' | ConvertFrom-Json
+        $body = ConvertTo-LdoDetectionRuleBody -Rule $rule -Id 'o'
+        $body.detectionAction.alertTemplate.entityMappings.oAuthApplications[0].oAuthAppIdColumn |
+            Should -Be 'OAuthAppId'
+    }
+
+    It 'requires an id from somewhere' {
+        $rule = '{"display_name":"x","query":"EmailEvents","frequency":"PT1H","alert":{"severity":"low"}}' | ConvertFrom-Json
+        { ConvertTo-LdoDetectionRuleBody -Rule $rule } | Should -Throw '*no rule id*'
+    }
+}
+
+Describe 'Test-LdoDetectionRuleDeployment' -Skip:(-not $yamlReady) {
+
+    BeforeEach {
+        $script:deployRule = '{"display_name":"Preflight me","query":"EmailEvents | project Timestamp, ReportId, RecipientEmailAddress","frequency":"PT1H","alert":{"severity":"low","entity_mappings":{"mailboxes":[{"primary_address_column":"RecipientEmailAddress"}]}}}' | ConvertFrom-Json
+    }
+
+    It 'creates a disabled marker copy then deletes it' {
+        InModuleScope LibreDevOpsHelpers.Kql -Parameters @{ rule = $script:deployRule } {
+            param($rule)
+            $script:calls = @()
+            Mock Invoke-LdoGraphRequest {
+                $script:calls += , @($Method, $Uri, $Body)
+                $null
+            }
+            Test-LdoDetectionRuleDeployment -Rule $rule | Should -BeTrue
+            $script:calls.Count | Should -Be 2
+
+            $post = $script:calls[0]
+            $post[0] | Should -Be 'Post'
+            $post[2].status | Should -Be 'disabled'
+            $post[2].id | Should -Match '^ldo-preflight-[0-9a-f]{8}$'
+            $post[2].displayName | Should -Match '^\[LDO preflight\] Preflight me$'
+
+            $del = $script:calls[1]
+            $del[0] | Should -Be 'Delete'
+            $del[1] | Should -Match ([regex]::Escape($post[2].id))
+        }
+    }
+
+    It 'returns false and skips the delete when the create is rejected' {
+        InModuleScope LibreDevOpsHelpers.Kql -Parameters @{ rule = $script:deployRule } {
+            param($rule)
+            Mock Invoke-LdoGraphRequest { throw 'InvalidInput: Only one tactic is currently supported.' }
+            Test-LdoDetectionRuleDeployment -Rule $rule | Should -BeFalse
+            Should -Invoke Invoke-LdoGraphRequest -Times 1 -Exactly
+        }
+    }
+
+    It 'treats a delete 404 as clean (deletion lag)' {
+        InModuleScope LibreDevOpsHelpers.Kql -Parameters @{ rule = $script:deployRule } {
+            param($rule)
+            Mock Invoke-LdoGraphRequest {
+                if ($Method -eq 'Delete') { throw 'NotFound: Custom detection rule was not found.' }
+                $null
+            }
+            Test-LdoDetectionRuleDeployment -Rule $rule | Should -BeTrue
+        }
+    }
+
+    It 'keeps the rule with -KeepRule' {
+        InModuleScope LibreDevOpsHelpers.Kql -Parameters @{ rule = $script:deployRule } {
+            param($rule)
+            Mock Invoke-LdoGraphRequest { $null }
+            Test-LdoDetectionRuleDeployment -Rule $rule -KeepRule | Should -BeTrue
+            Should -Invoke Invoke-LdoGraphRequest -Times 1 -Exactly
+        }
+    }
+}

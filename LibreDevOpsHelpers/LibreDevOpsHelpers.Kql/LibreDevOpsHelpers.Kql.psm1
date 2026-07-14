@@ -939,3 +939,297 @@ function Remove-LdoDetectionRuleId {
     Write-LdoLog -Level INFO -Message "Removed ids from $($changed.Count) of $($files.Count) file(s)."
     return $changed
 }
+
+function ConvertTo-LdoDetectionRuleBody {
+    <#
+    .SYNOPSIS
+        Converts an analyst detection rule (YAML or object) into the Graph detectionRules
+        request body.
+
+    .DESCRIPTION
+        A standalone PowerShell port of the terraform-msgraph-xdr-custom-detection-rules
+        normaliser, so tooling can build the exact JSON the module would send: values
+        canonicalised (ConvertTo-LdoCanonicalDetectionRule), snake_case keys converted to the
+        Graph camelCase shape (entity mapping groups and columns, automated action groups,
+        oAuth specials), alert title and description defaulted from the rule, and only the FIRST
+        authored MITRE tactic sent (the live service rejects more than one). extra_body merges
+        over the generated body last.
+
+    .PARAMETER Path
+        A rule YAML file (parsed with ConvertFrom-LdoYaml). The file name becomes the rule id
+        when the file sets none.
+
+    .PARAMETER Rule
+        A parsed rule object (hashtable or PSCustomObject tree) instead of a file.
+
+    .PARAMETER Id
+        Rule id override. Wins over the rule's own id and the file name.
+
+    .EXAMPLE
+        ConvertTo-LdoDetectionRuleBody -Path ./custom-detections/identity/burst.yaml | ConvertTo-Json -Depth 20
+
+    .OUTPUTS
+        System.Collections.Specialized.OrderedDictionary. The Graph request body.
+    #>
+    [CmdletBinding(DefaultParameterSetName = 'Path')]
+    [OutputType([System.Collections.Specialized.OrderedDictionary])]
+    param(
+        [Parameter(Mandatory, ParameterSetName = 'Path')][ValidateNotNullOrEmpty()][string]$Path,
+        [Parameter(Mandatory, ParameterSetName = 'Rule')]$Rule,
+        [string]$Id
+    )
+
+    if ($PSCmdlet.ParameterSetName -eq 'Path') {
+        if (-not (Test-Path $Path)) { throw "ConvertTo-LdoDetectionRuleBody: file not found: $Path" }
+        $Rule = ConvertFrom-LdoYaml -Path $Path
+        if (-not $Id) {
+            $Id = if ($Rule.PSObject.Properties['id'] -and $Rule.id) { "$($Rule.id)" }
+            else { [System.IO.Path]::GetFileNameWithoutExtension($Path) }
+        }
+    }
+
+    # Round trip through JSON for a uniform PSCustomObject tree, then canonicalise values the same
+    # way the Terraform module does.
+    $r = ($Rule | ConvertTo-Json -Depth 100) | ConvertFrom-Json
+    $r = ConvertTo-LdoCanonicalDetectionRule -Rule $r
+
+    if (-not $Id) {
+        $Id = if ($r.PSObject.Properties['id'] -and $r.id) { "$($r.id)" }
+        else { throw 'ConvertTo-LdoDetectionRuleBody: no rule id (set id in the rule, pass -Id, or use -Path so the file name applies).' }
+    }
+
+    $groupNames = @{
+        accounts = 'accounts'; amazon_resources = 'amazonResources'; azure_resources = 'azureResources'
+        cloud_applications = 'cloudApplications'; dns = 'dns'; files = 'files'
+        google_cloud_resources = 'googleCloudResources'; hosts = 'hosts'; ips = 'ips'
+        mail_clusters = 'mailClusters'; mail_messages = 'mailMessages'; mailboxes = 'mailboxes'
+        oauth_applications = 'oAuthApplications'; processes = 'processes'
+        registry_values = 'registryValues'; security_groups = 'securityGroups'; urls = 'urls'
+    }
+    $actionNames = @{
+        allow_files = 'allowFiles'; block_files = 'blockFiles'
+        collect_investigation_packages = 'collectInvestigationPackages'; disable_users = 'disableUsers'
+        force_user_password_resets = 'forceUserPasswordResets'; hard_delete_emails = 'hardDeleteEmails'
+        initiate_investigations = 'initiateInvestigations'; isolate_devices = 'isolateDevices'
+        mark_users_as_compromised = 'markUsersAsCompromised'
+        move_emails_to_deleted_items = 'moveEmailsToDeletedItems'; move_emails_to_inbox = 'moveEmailsToInbox'
+        move_emails_to_junk = 'moveEmailsToJunk'; restrict_app_executions = 'restrictAppExecutions'
+        run_antivirus_scans = 'runAntivirusScans'; soft_delete_emails = 'softDeleteEmails'
+        stop_and_quarantine_files = 'stopAndQuarantineFiles'
+    }
+
+    function ConvertTo-CamelKey {
+        param([string]$Name)
+        if ($Name -eq 'oauth_app_id_column') { return 'oAuthAppIdColumn' }
+        $parts = $Name -split '_'
+        $head = $parts[0]
+        $tail = @($parts | Select-Object -Skip 1 | ForEach-Object {
+                if ($_.Length -gt 0) { $_.Substring(0, 1).ToUpperInvariant() + $_.Substring(1) }
+            })
+        return ($head + ($tail -join ''))
+    }
+
+    function ConvertTo-CamelItems {
+        param($Items)
+        $converted = @(foreach ($it in @($Items)) {
+                $out = [ordered]@{}
+                foreach ($p in $it.PSObject.Properties) {
+                    if ($null -eq $p.Value) { continue }
+                    $out[(ConvertTo-CamelKey -Name $p.Name)] = $p.Value
+                }
+                if ($out.Count -gt 0) { $out }
+            })
+        return , $converted
+    }
+
+    $alert = if ($r.PSObject.Properties['alert']) { $r.alert } else { $null }
+
+    $template = [ordered]@{}
+    $template.title = if ($alert -and $alert.PSObject.Properties['title'] -and $alert.title) { $alert.title }
+    elseif ($r.PSObject.Properties['display_name'] -and $r.display_name) { $r.display_name } else { $Id }
+    $template.description = if ($alert -and $alert.PSObject.Properties['description'] -and $alert.description) { $alert.description }
+    elseif ($r.PSObject.Properties['description'] -and $r.description) { $r.description } else { $template.title }
+    $template.severity = if ($alert -and $alert.PSObject.Properties['severity'] -and $alert.severity) { $alert.severity } else { 'medium' }
+    if ($alert -and $alert.PSObject.Properties['recommended_actions'] -and $alert.recommended_actions) {
+        $template.recommendedActions = $alert.recommended_actions
+    }
+    if ($alert -and $alert.PSObject.Properties['custom_details'] -and $alert.custom_details) {
+        $details = [ordered]@{}
+        foreach ($p in $alert.custom_details.PSObject.Properties) { $details[$p.Name] = $p.Value }
+        if ($details.Count -gt 0) { $template.customDetails = $details }
+    }
+
+    if ($alert -and $alert.PSObject.Properties['mitre'] -and $alert.mitre) {
+        # Only the first authored tactic goes to the API (live 400 on more than one).
+        $m = @($alert.mitre)[0]
+        $entry = [ordered]@{ tactic = "$($m.tactic)" }
+        if ($m.PSObject.Properties['techniques'] -and $m.techniques) {
+            $entry.techniques = @(foreach ($t in @($m.techniques)) {
+                    if ($t -is [string]) { [ordered]@{ technique = $t } }
+                    else {
+                        $q = [ordered]@{ technique = "$($t.technique)" }
+                        if ($t.PSObject.Properties['sub_techniques'] -and $t.sub_techniques) {
+                            $q.subTechniques = @($t.sub_techniques)
+                        }
+                        $q
+                    }
+                })
+        }
+        $template.tactics = @($entry)
+    }
+
+    if ($alert -and $alert.PSObject.Properties['entity_mappings'] -and $alert.entity_mappings) {
+        $mappings = [ordered]@{}
+        foreach ($p in $alert.entity_mappings.PSObject.Properties) {
+            if ($null -eq $p.Value) { continue }
+            $graphGroup = if ($groupNames.ContainsKey($p.Name)) { $groupNames[$p.Name] } else { ConvertTo-CamelKey -Name $p.Name }
+            $items = ConvertTo-CamelItems -Items $p.Value
+            if ($items.Count -gt 0) { $mappings[$graphGroup] = $items }
+        }
+        if ($mappings.Count -gt 0) { $template.entityMappings = $mappings }
+    }
+
+    $detectionAction = [ordered]@{ alertTemplate = $template }
+
+    if ($r.PSObject.Properties['device_groups'] -and $r.device_groups) {
+        $detectionAction.organizationalScope = [ordered]@{ deviceGroups = @($r.device_groups) }
+    }
+
+    if ($r.PSObject.Properties['automated_actions'] -and $r.automated_actions) {
+        $actions = [ordered]@{}
+        foreach ($p in $r.automated_actions.PSObject.Properties) {
+            if ($null -eq $p.Value) { continue }
+            $graphAction = if ($actionNames.ContainsKey($p.Name)) { $actionNames[$p.Name] } else { ConvertTo-CamelKey -Name $p.Name }
+            $items = ConvertTo-CamelItems -Items $p.Value
+            if ($items.Count -gt 0) { $actions[$graphAction] = $items }
+        }
+        if ($actions.Count -gt 0) { $detectionAction.automatedActions = $actions }
+    }
+
+    $body = [ordered]@{
+        id             = "$Id"
+        displayName    = if ($r.PSObject.Properties['display_name'] -and $r.display_name) { $r.display_name } else { "$Id" }
+        status         = if ($r.PSObject.Properties['status'] -and $r.status) { "$($r.status)" } else { 'enabled' }
+        queryCondition = [ordered]@{ queryText = "$($r.query)" }
+        schedule       = [ordered]@{ frequency = if ($r.PSObject.Properties['frequency'] -and $r.frequency) { "$($r.frequency)" } else { 'PT24H' } }
+    }
+    if ($r.PSObject.Properties['description'] -and $r.description) { $body.description = $r.description }
+    $body.detectionAction = $detectionAction
+
+    if ($r.PSObject.Properties['extra_body'] -and $r.extra_body) {
+        foreach ($p in $r.extra_body.PSObject.Properties) { $body[$p.Name] = $p.Value }
+    }
+
+    return $body
+}
+
+function Test-LdoDetectionRuleDeployment {
+    <#
+    .SYNOPSIS
+        Preflights a detection rule against the live API: create a disabled marker copy, then
+        delete it.
+
+    .DESCRIPTION
+        Graph has no dry run for detection rules, so this is the only way to catch the
+        create-time-only rejections (single tactic, mandatory entity combinations, asset entity
+        requirement, device group existence) before Terraform runs: the rule converts through
+        ConvertTo-LdoDetectionRuleBody, deploys under a random preflight id with status FORCED to
+        disabled and a marked display name, and is deleted immediately on success. Deletion is
+        eventually consistent server side, so a delete timeout or 404 is treated as clean; any
+        other delete failure warns with the preflight id named for later cleanup (the rule is
+        disabled, so a leftover is inert).
+
+        QUOTA WARNING: the detection rules API enforces an hourly quota per tenant and app
+        (roughly 300 calls per hour observed live). Use this for spot checks on new or gnarly
+        rules, not as a bulk gate; the offline gate (Invoke-LdoDetectionGate) and the Terraform
+        module's in graph validation remain the bulk path.
+
+    .PARAMETER Path
+        A rule YAML file to preflight.
+
+    .PARAMETER Rule
+        A parsed rule object instead of a file.
+
+    .PARAMETER Body
+        A pre built Graph body (from ConvertTo-LdoDetectionRuleBody); id, displayName and status
+        are still overridden with the preflight markers.
+
+    .PARAMETER ApiVersion
+        Graph API version. Defaults to beta (the rules API is beta only today).
+
+    .PARAMETER KeepRule
+        Leave the disabled preflight rule in place for inspection instead of deleting it.
+
+    .PARAMETER SourceLabel
+        Label used in log messages. Defaults to the file path or the rule id.
+
+    .EXAMPLE
+        Test-LdoDetectionRuleDeployment -Path ./custom-detections/identity/burst.yaml
+
+    .OUTPUTS
+        System.Boolean
+    #>
+    [CmdletBinding(DefaultParameterSetName = 'Path')]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory, ParameterSetName = 'Path')][ValidateNotNullOrEmpty()][string]$Path,
+        [Parameter(Mandatory, ParameterSetName = 'Rule')]$Rule,
+        [Parameter(Mandatory, ParameterSetName = 'Body')]$Body,
+        [ValidateSet('v1.0', 'beta')][string]$ApiVersion = 'beta',
+        [switch]$KeepRule,
+        [string]$SourceLabel
+    )
+
+    $built = switch ($PSCmdlet.ParameterSetName) {
+        'Path' {
+            if (-not $SourceLabel) { $SourceLabel = $Path }
+            ConvertTo-LdoDetectionRuleBody -Path $Path
+        }
+        # The preflight replaces the id with its own marker, so a placeholder satisfies the
+        # converter's id requirement for object input.
+        'Rule' { ConvertTo-LdoDetectionRuleBody -Rule $Rule -Id 'preflight' }
+        'Body' { $Body }
+    }
+    if (-not $SourceLabel) { $SourceLabel = "$($built.id)" }
+
+    $preflightId = 'ldo-preflight-' + (-join ((1..8) | ForEach-Object { '{0:x}' -f (Get-Random -Maximum 16) }))
+    $built.id = $preflightId
+    $built.displayName = "[LDO preflight] $($built.displayName)"
+    $built.status = 'disabled'
+
+    Write-LdoLog -Level INFO -Message "Preflighting ${SourceLabel} as $preflightId (disabled)."
+
+    try {
+        Invoke-LdoGraphRequest -Method Post -Uri "https://graph.microsoft.com/$ApiVersion/security/rules/detectionRules" `
+            -Body $built | Out-Null
+    }
+    catch {
+        $detail = try { Get-LdoGraphErrorDetail -ErrorRecord $_ } catch { $_.Exception.Message }
+        Write-LdoLog -Level ERROR -Message "Preflight: ${SourceLabel} was rejected by the API: $detail"
+        return $false
+    }
+
+    Write-LdoLog -Level SUCCESS -Message "Preflight: ${SourceLabel} deploys clean."
+
+    if ($KeepRule) {
+        Write-LdoLog -Level WARN -Message "Preflight rule $preflightId kept (disabled); delete it when done."
+        return $true
+    }
+
+    try {
+        Invoke-LdoGraphRequest -Method Delete -Uri "https://graph.microsoft.com/$ApiVersion/security/rules/detectionRules/$preflightId" | Out-Null
+        Write-LdoLog -Level INFO -Message "Preflight rule $preflightId deleted."
+    }
+    catch {
+        # Deletion is eventually consistent (proven live: accepted deletes stay readable for many
+        # minutes); a 404 means it is already gone. Anything else leaves an inert disabled rule.
+        if ("$_" -match '(?i)not\s*found|404') {
+            Write-LdoLog -Level INFO -Message "Preflight rule $preflightId already gone."
+        }
+        else {
+            Write-LdoLog -Level WARN -Message "Preflight rule $preflightId could not be deleted now (deletion lags server side); it is disabled and inert, clean it up later: $_"
+        }
+    }
+
+    return $true
+}

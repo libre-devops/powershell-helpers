@@ -2,6 +2,22 @@
 
 All notable changes to LibreDevOpsHelpers are recorded here.
 
+## 2.8.0
+
+### Added
+- `ConvertTo-LdoDetectionRuleBody`: converts an analyst rule (YAML file or parsed object) into
+  the exact Graph detectionRules request body the Terraform module would send: values
+  canonicalised, snake_case keys to the Graph camelCase shape, alert title and description
+  defaulted, and only the first authored MITRE tactic included (the live service rejects more).
+- `Test-LdoDetectionRuleDeployment`: live API preflight for a rule. Graph has no dry run, so the
+  rule deploys under a random `ldo-preflight-*` id with status forced to disabled and a marked
+  display name, then deletes itself; create rejections (single tactic, mandatory entity
+  combinations, asset entity requirement, device group existence) surface before Terraform ever
+  runs. Deletion lag and 404s are treated as clean; other delete failures warn with the inert
+  disabled rule named for later cleanup. Quota warning documented (the rules API enforces an
+  hourly per tenant and app quota, roughly 300 calls observed live): a spot check, not a bulk
+  gate.
+
 ## 2.7.0
 
 ### Added
