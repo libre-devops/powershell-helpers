@@ -48,9 +48,11 @@ function Install-LdoGuestConfigurationModule {
     Install-Module -Name 'PSDscResources' -Scope CurrentUser -Force -AllowClobber
 
     if ($IncludeLinuxResources) {
-        Write-LdoLog -Level INFO -Message 'Installing nxtools and PSDesiredStateConfiguration 3.0.0 prerelease for Linux content.'
+        # The v3 prereleases are UNLISTED on PSGallery (Find-Module shows only 2.x), so the bare
+        # '3.0.0' never matches; an unlisted package still installs by its exact prerelease string.
+        Write-LdoLog -Level INFO -Message 'Installing nxtools and PSDesiredStateConfiguration 3.0.0-beta1 for Linux content.'
         Install-Module -Name 'nxtools' -Scope CurrentUser -Force -AllowClobber
-        Install-Module -Name 'PSDesiredStateConfiguration' -RequiredVersion '3.0.0' -AllowPrerelease -Scope CurrentUser -Force -AllowClobber
+        Install-Module -Name 'PSDesiredStateConfiguration' -RequiredVersion '3.0.0-beta1' -AllowPrerelease -Scope CurrentUser -Force -AllowClobber
     }
     else {
         Write-LdoLog -Level INFO -Message 'Installing PSDesiredStateConfiguration 2.0.7 for Windows content.'
