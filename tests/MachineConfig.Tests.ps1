@@ -48,6 +48,38 @@ Describe 'New-LdoMachineConfigPackage' {
         }
         finally { Remove-Item $f -Force -ErrorAction SilentlyContinue }
     }
+
+    It 'returns exactly one string (the zip path), suppressing the compile pipeline output' {
+        # A real configuration script compiles ./<Name>/localhost.mof AND emits the MOF FileInfo to
+        # the pipeline; the function must suppress that emission or its return value becomes an
+        # array (caught live: Get-LdoMachineConfigPackageHash then failed to bind ZipPath). The
+        # stub script and packaging function mimic both behaviours without needing libmi.
+        function global:New-GuestConfigurationPackage {
+            param($Name, $Configuration, $Type, $Path, $Force)
+            $zip = Join-Path $Path "$Name.zip"
+            Set-Content -LiteralPath $zip -Value 'stub package'
+            [pscustomobject]@{ Name = $Name; Path = $zip }
+        }
+        $work = Join-Path ([System.IO.Path]::GetTempPath()) "ldomc-$([guid]::NewGuid())"
+        New-Item -ItemType Directory -Path $work -Force | Out-Null
+        $cfg = Join-Path $work 'Example.ps1'
+        Set-Content -LiteralPath $cfg -Value @'
+$dir = Join-Path (Get-Location) 'Example'
+New-Item -ItemType Directory -Path $dir -Force | Out-Null
+Set-Content -LiteralPath (Join-Path $dir 'localhost.mof') -Value 'instance of Example'
+Get-Item (Join-Path $dir 'localhost.mof')
+'@
+        try {
+            $result = New-LdoMachineConfigPackage -ConfigurationScript $cfg -Name Example -OutputPath $work
+            @($result).Count | Should -Be 1
+            $result | Should -BeOfType [string]
+            $result | Should -BeLike '*Example.zip'
+        }
+        finally {
+            Remove-Item function:global:New-GuestConfigurationPackage -ErrorAction SilentlyContinue
+            Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
 }
 
 Describe 'Test-LdoMachineConfigPackage' {

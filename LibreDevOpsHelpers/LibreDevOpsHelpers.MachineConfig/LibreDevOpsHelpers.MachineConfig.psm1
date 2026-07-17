@@ -123,9 +123,11 @@ function New-LdoMachineConfigPackage {
     Push-Location $OutputPath
     try {
         # Dot sourcing runs the script, which invokes the Configuration and compiles the MOF into
-        # ./<Name>/localhost.mof relative to the current directory.
+        # ./<Name>/localhost.mof relative to the current directory. The invocation emits the MOF
+        # FileInfo to the pipeline; suppress it or it pollutes this function's return value (the
+        # caller would receive an array instead of the .zip path string).
         Write-LdoLog -Level INFO -Message "Compiling DSC configuration '$Name' from $scriptFull"
-        . $scriptFull
+        . $scriptFull | Out-Null
 
         $mofDir = Join-Path $OutputPath $Name
         $mof = Join-Path $mofDir 'localhost.mof'
