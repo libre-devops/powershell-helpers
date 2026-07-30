@@ -141,11 +141,11 @@ function New-LdoMachineConfigPackage {
         Rename-Item -Path $mof -NewName "$Name.mof" -Force
 
         $params = @{
-            Name          = $Name
+            Name = $Name
             Configuration = $namedMof
-            Type          = $Type
-            Path          = $OutputPath
-            Force         = $true
+            Type = $Type
+            Path = $OutputPath
+            Force = $true
         }
         if ($FrequencyMinutes -gt 0) { $params.FrequencyMinutes = $FrequencyMinutes }
         if (@($FilesToInclude).Count -gt 0) { $params.FilesToInclude = $FilesToInclude }

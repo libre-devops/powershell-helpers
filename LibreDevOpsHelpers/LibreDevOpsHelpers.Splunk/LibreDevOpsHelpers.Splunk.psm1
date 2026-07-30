@@ -60,7 +60,7 @@ function Send-LdoSplunkHecEvent {
     param(
         [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$Uri,
         [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$Token,
-        [Parameter(Mandatory, ValueFromPipeline)][ValidateNotNull()][object[]]$Event,
+        [Parameter(Mandatory, ValueFromPipeline)][ValidateNotNull()][Alias('Event')][object[]]$EventData,
         [string]$Sourcetype,
         [string]$Source,
         [string]$Index,
@@ -74,7 +74,7 @@ function Send-LdoSplunkHecEvent {
     }
 
     process {
-        foreach ($e in $Event) { $collected.Add($e) }
+        foreach ($e in $EventData) { $collected.Add($e) }
     }
 
     end {
@@ -94,10 +94,10 @@ function Send-LdoSplunkHecEvent {
         $endpoint = "$($Uri.TrimEnd('/'))/services/collector/event"
         $headers = @{ Authorization = "Splunk $Token" }
         $rest = @{
-            Uri         = $endpoint
-            Method      = 'Post'
-            Headers     = $headers
-            Body        = $body
+            Uri = $endpoint
+            Method = 'Post'
+            Headers = $headers
+            Body = $body
             ContentType = 'application/json'
         }
         if ($SkipCertificateCheck) { $rest.SkipCertificateCheck = $true }
@@ -171,20 +171,20 @@ function Invoke-LdoSplunkSearch {
     if (-not ($spl -match '^\s*(search\b|\|)')) { $spl = "search $spl" }
 
     $form = @{
-        search      = $spl
+        search = $spl
         output_mode = 'json'
-        exec_mode   = 'oneshot'
-        count       = $MaxCount
+        exec_mode = 'oneshot'
+        count = $MaxCount
     }
     if ($EarliestTime) { $form.earliest_time = $EarliestTime }
     if ($LatestTime) { $form.latest_time = $LatestTime }
 
     $endpoint = "$($Uri.TrimEnd('/'))/services/search/jobs"
     $rest = @{
-        Uri     = $endpoint
-        Method  = 'Post'
+        Uri = $endpoint
+        Method = 'Post'
         Headers = @{ Authorization = "Bearer $Token" }
-        Body    = $form
+        Body = $form
     }
     if ($SkipCertificateCheck) { $rest.SkipCertificateCheck = $true }
 
@@ -235,8 +235,8 @@ function Test-LdoSplunkConnection {
 
     $endpoint = "$($Uri.TrimEnd('/'))/services/server/info?output_mode=json"
     $rest = @{
-        Uri     = $endpoint
-        Method  = 'Get'
+        Uri = $endpoint
+        Method = 'Get'
         Headers = @{ Authorization = "Bearer $Token" }
     }
     if ($SkipCertificateCheck) { $rest.SkipCertificateCheck = $true }

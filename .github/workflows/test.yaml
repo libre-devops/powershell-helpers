@@ -26,5 +26,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The Conftest and Trivy suites gate themselves on the CLI being present and skip when it is
+      # not, so on a bare runner the nine tests covering the gate logic itself (deny handling,
+      # -SoftFail, -FailOnWarn, HIGH/CRITICAL failure, and waiver discovery) never ran. Installing
+      # both through the module's own installers turns those skips back into real assertions, and
+      # exercises the installers on every push as a side effect.
+      - name: Install the CLIs the Conftest and Trivy suites need
+        run: |
+          Import-Module ./LibreDevOpsHelpers/LibreDevOpsHelpers.psd1 -Force
+          Install-LdoConftest
+          Install-LdoTrivy
+          conftest --version
+          trivy --version
+
       - name: Run analyzer and tests
         run: ./Invoke-Tests.ps1

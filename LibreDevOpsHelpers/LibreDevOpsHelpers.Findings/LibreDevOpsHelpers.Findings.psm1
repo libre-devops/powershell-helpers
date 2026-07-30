@@ -42,11 +42,11 @@ function Add-LdoFinding {
     )
 
     $script:LdoFindings.Add([pscustomobject]@{
-            Tool    = $Tool
-            Target  = $Target
-            Status  = $Status
+            Tool = $Tool
+            Target = $Target
+            Status = $Status
             Summary = $Summary
-            Detail  = $Detail
+            Detail = $Detail
         })
 }
 

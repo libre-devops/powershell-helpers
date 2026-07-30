@@ -45,7 +45,7 @@ function Install-LdoKustoLanguage {
     [OutputType([string])]
     param(
         [string]$Version = 'latest',
-        [string]$CacheDir = (Join-Path $HOME '.ldo' 'kusto-language'),
+        [string]$CacheDir = (Join-Path -Path $HOME -ChildPath '.ldo' -AdditionalChildPath 'kusto-language'),
         [string]$ExpectedSha256,
         [switch]$RequireSignature
     )
@@ -84,7 +84,7 @@ function Install-LdoKustoLanguage {
             $nuspec = Get-ChildItem -Path (Join-Path $work 'pkg') -Filter '*.nuspec' -File | Select-Object -First 1
             $resolved = ([xml](Get-Content -Raw $nuspec.FullName)).package.metadata.version
 
-            $dll = Join-Path $work 'pkg' 'lib' 'netstandard2.0' 'Kusto.Language.dll'
+            $dll = Join-Path -Path $work -ChildPath 'pkg' -AdditionalChildPath 'lib', 'netstandard2.0', 'Kusto.Language.dll'
             if (-not (Test-Path $dll)) { throw 'Kusto.Language.dll (netstandard2.0) not found in the package.' }
 
             $dest = Join-Path $CacheDir $resolved
@@ -185,7 +185,7 @@ function Test-LdoKqlSyntax {
         System.Boolean by default; diagnostic objects with -PassThru.
     #>
     [CmdletBinding(DefaultParameterSetName = 'Query')]
-    [OutputType([bool])]
+    [OutputType([bool], [System.Collections.Generic.List[object]])]
     param(
         [Parameter(Mandatory, ParameterSetName = 'Query', ValueFromPipeline)]
         [ValidateNotNullOrEmpty()][string[]]$Query,
@@ -226,11 +226,11 @@ function Test-LdoKqlSyntax {
             $code = [Kusto.Language.KustoCode]::Parse($s.Text)
             foreach ($d in @($code.GetDiagnostics())) {
                 $item = [pscustomobject]@{
-                    Source   = $s.Label
+                    Source = $s.Label
                     Severity = "$($d.Severity)"
-                    Code     = $d.Code
+                    Code = $d.Code
                     Position = $d.Start
-                    Message  = $d.Message
+                    Message = $d.Message
                 }
                 $all.Add($item)
                 if ($item.Severity -eq 'Error') {
@@ -716,7 +716,7 @@ function Export-LdoCustomDetectionRule {
         System.IO.FileInfo[]
     #>
     [CmdletBinding()]
-    [OutputType([System.IO.FileInfo[]])]
+    [OutputType([System.IO.FileInfo[]], [object[]])]
     param(
         [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$OutDir,
         [string]$Id,
@@ -765,7 +765,7 @@ function Export-LdoCustomDetectionRule {
         return ([regex]::Replace($Name, '(?<=[a-z0-9])([A-Z])', '_$1')).ToLowerInvariant()
     }
 
-    function ConvertTo-SnakeItems {
+    function ConvertTo-SnakeItem {
         param($Items)
         $converted = @(foreach ($it in @($Items)) {
                 $out = [ordered]@{}
@@ -856,7 +856,7 @@ function Export-LdoCustomDetectionRule {
             foreach ($p in $template.entityMappings.PSObject.Properties) {
                 if ($p.Name.StartsWith('@') -or $null -eq $p.Value) { continue }
                 $snakeGroup = if ($groupNames.ContainsKey($p.Name)) { $groupNames[$p.Name] } else { ConvertTo-SnakeKey -Name $p.Name }
-                $items = ConvertTo-SnakeItems -Items $p.Value
+                $items = ConvertTo-SnakeItem -Items $p.Value
                 if ($items.Count -gt 0) { $mappings[$snakeGroup] = $items }
             }
             if ($mappings.Count -gt 0) { $alert.entity_mappings = $mappings }
@@ -880,7 +880,7 @@ function Export-LdoCustomDetectionRule {
             foreach ($p in $rule.detectionAction.automatedActions.PSObject.Properties) {
                 if ($p.Name.StartsWith('@') -or $null -eq $p.Value -or @($p.Value).Count -eq 0) { continue }
                 $snakeAction = if ($actionNames.ContainsKey($p.Name)) { $actionNames[$p.Name] } else { ConvertTo-SnakeKey -Name $p.Name }
-                $items = ConvertTo-SnakeItems -Items $p.Value
+                $items = ConvertTo-SnakeItem -Items $p.Value
                 if ($items.Count -gt 0) { $actions[$snakeAction] = $items }
             }
             if ($actions.Count -gt 0) {
@@ -1094,7 +1094,7 @@ function ConvertTo-LdoDetectionRuleBody {
         return ($head + ($tail -join ''))
     }
 
-    function ConvertTo-CamelItems {
+    function ConvertTo-CamelItem {
         param($Items)
         $converted = @(foreach ($it in @($Items)) {
                 $out = [ordered]@{}
@@ -1148,7 +1148,7 @@ function ConvertTo-LdoDetectionRuleBody {
         foreach ($p in $alert.entity_mappings.PSObject.Properties) {
             if ($null -eq $p.Value) { continue }
             $graphGroup = if ($groupNames.ContainsKey($p.Name)) { $groupNames[$p.Name] } else { ConvertTo-CamelKey -Name $p.Name }
-            $items = ConvertTo-CamelItems -Items $p.Value
+            $items = ConvertTo-CamelItem -Items $p.Value
             if ($items.Count -gt 0) { $mappings[$graphGroup] = $items }
         }
         if ($mappings.Count -gt 0) { $template.entityMappings = $mappings }
@@ -1165,18 +1165,18 @@ function ConvertTo-LdoDetectionRuleBody {
         foreach ($p in $r.automated_actions.PSObject.Properties) {
             if ($null -eq $p.Value) { continue }
             $graphAction = if ($actionNames.ContainsKey($p.Name)) { $actionNames[$p.Name] } else { ConvertTo-CamelKey -Name $p.Name }
-            $items = ConvertTo-CamelItems -Items $p.Value
+            $items = ConvertTo-CamelItem -Items $p.Value
             if ($items.Count -gt 0) { $actions[$graphAction] = $items }
         }
         if ($actions.Count -gt 0) { $detectionAction.automatedActions = $actions }
     }
 
     $body = [ordered]@{
-        id             = "$Id"
-        displayName    = if ($r.PSObject.Properties['display_name'] -and $r.display_name) { $r.display_name } else { "$Id" }
-        status         = if ($r.PSObject.Properties['status'] -and $r.status) { "$($r.status)" } else { 'enabled' }
+        id = "$Id"
+        displayName = if ($r.PSObject.Properties['display_name'] -and $r.display_name) { $r.display_name } else { "$Id" }
+        status = if ($r.PSObject.Properties['status'] -and $r.status) { "$($r.status)" } else { 'enabled' }
         queryCondition = [ordered]@{ queryText = "$($r.query)" }
-        schedule       = [ordered]@{ frequency = if ($r.PSObject.Properties['frequency'] -and $r.frequency) { "$($r.frequency)" } else { 'PT24H' } }
+        schedule = [ordered]@{ frequency = if ($r.PSObject.Properties['frequency'] -and $r.frequency) { "$($r.frequency)" } else { 'PT24H' } }
     }
     if ($r.PSObject.Properties['description'] -and $r.description) { $body.description = $r.description }
     $body.detectionAction = $detectionAction
@@ -1257,7 +1257,7 @@ function Test-LdoDetectionRuleDeployment {
     }
     if (-not $SourceLabel) { $SourceLabel = "$($built.id)" }
 
-    $preflightId = 'ldo-preflight-' + (-join ((1..8) | ForEach-Object { '{0:x}' -f (Get-Random -Maximum 16) }))
+    $preflightId = 'ldo-preflight-' + ( -join ((1..8) | ForEach-Object { '{0:x}' -f (Get-Random -Maximum 16) }))
     $built.id = $preflightId
     $built.displayName = "[LDO preflight] $($built.displayName)"
     $built.status = 'disabled'

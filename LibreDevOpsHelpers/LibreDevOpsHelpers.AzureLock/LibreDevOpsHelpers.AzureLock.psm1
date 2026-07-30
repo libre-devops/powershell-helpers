@@ -19,7 +19,7 @@ function Get-LdoResourceGroupLock {
         System.Management.Automation.PSObject[]
     #>
     [CmdletBinding()]
-    [OutputType([psobject[]])]
+    [OutputType([psobject[]], [object[]])]
     param(
         [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$ResourceGroup
     )
@@ -143,7 +143,7 @@ function Get-LdoResourceGroupNamesFromPlan {
         System.String[]
     #>
     [CmdletBinding()]
-    [OutputType([string[]])]
+    [OutputType([string[]], [object[]])]
     param(
         [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$PlanJsonPath
     )
