@@ -2,6 +2,29 @@
 
 All notable changes to LibreDevOpsHelpers are recorded here.
 
+## 2.11.1
+
+### Fixed
+- Every PSScriptAnalyzer finding across the tree cleared (38 to 0). `Invoke-Tests.ps1` only throws
+  on Error severity, so Warning-level findings had accumulated unnoticed against the CONTRIBUTING
+  rule that the analyzer must be clean.
+  - `Send-LdoSplunkHecEvent` took a parameter named `$Event`, which shadows the PowerShell
+    automatic variable of that name. Renamed to `$EventData` with `[Alias('Event')]`, so existing
+    callers are unaffected.
+  - Two nested Kql helpers used plural nouns (`ConvertTo-SnakeItems`, `ConvertTo-CamelItems`).
+    Renamed to the singular; both are internal to their enclosing function and never exported.
+  - Two `Join-Path` calls passed three or more positional arguments; they now name `-Path`,
+    `-ChildPath` and `-AdditionalChildPath`.
+  - Four `OutputType` attributes widened to admit the `Object[]` that `@()` actually produces, and
+    the remaining whitespace findings formatted with the repo's own settings. No behaviour changes.
+
+### Changed
+- CI installs the Conftest and Trivy CLIs through `Install-LdoConftest` and `Install-LdoTrivy`
+  before running the suite. Both suites skip themselves when their CLI is absent, so on a bare
+  runner the nine tests covering the gate logic (deny handling, `-SoftFail`, `-FailOnWarn`,
+  HIGH/CRITICAL failure and waiver discovery) never ran, leaving the security gates unverified on
+  every push. CI now reports 480 passing and 0 skipped, up from 471 passing and 9 skipped.
+
 ## 2.11.0
 
 ### Added
