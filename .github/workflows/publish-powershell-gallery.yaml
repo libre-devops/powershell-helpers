@@ -25,6 +25,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Keep in step with test.yaml. The Conftest and Trivy suites skip themselves when their CLI
+      # is missing, so without this the nine tests covering the gate logic (deny handling,
+      # -SoftFail, -FailOnWarn, HIGH/CRITICAL failure, waiver discovery) silently do not run in
+      # the job that gates publishing, which is the last place that should happen.
+      - name: Install the CLIs the Conftest and Trivy suites need
+        run: |
+          Import-Module ./LibreDevOpsHelpers/LibreDevOpsHelpers.psd1 -Force
+          Install-LdoConftest
+          Install-LdoTrivy
+          conftest --version
+          trivy --version
+
       - name: Run analyzer and tests
         run: ./Invoke-Tests.ps1
 
