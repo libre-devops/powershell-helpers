@@ -8,12 +8,19 @@ on:
     branches:
       - main
   workflow_dispatch:
+  # Called by the publish workflows so the gate that guards a release is this exact job, rather
+  # than a copy of it that can drift. It drifted once already: the CLI install step was added here
+  # and the publish gates kept skipping the Conftest and Trivy tests.
+  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
-  group: test-${{ github.ref }}
+  # github.workflow resolves to the CALLING workflow's name under workflow_call, so the standalone
+  # run and each publish gate land in their own group. A shared group would make the three runs
+  # triggered by one manifest push cancel each other, taking the publish down with them.
+  group: test-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
