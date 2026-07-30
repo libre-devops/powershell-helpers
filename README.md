@@ -174,6 +174,32 @@ Defender for Endpoint on Linux (`mdatp`).
 - Windows AV: `Get-LdoDefenderAvStatus`, `Start-LdoDefenderAvScan`, `Update-LdoDefenderAvSignature`, `Add-LdoDefenderAvExclusion`
 - Linux (mdatp): `Get-LdoMdatpHealth`, `Start-LdoMdatpScan`, `Update-LdoMdatpDefinition`, `Add-LdoMdatpExclusion`
 
+### LogicApps
+Consumption Logic App workflow tooling. The offline half checks a definition against the contract
+the platform enforces, with no network access and nothing deployed; the online half asks the
+resource provider to validate it without creating anything.
+
+The contract is not taste, it is what Azure rejects: a definition arrives in one of three shapes, a
+wrapper's `parameters` block holds VALUES while a bare definition's holds DECLARATIONS, every
+declared parameter needs a value by deploy time or the engine returns `InvalidTemplate`, and a
+native `Workflow` dispatch action's target is checked at PUT time (`NestedWorkflowNotFound`).
+- Shape: `ConvertFrom-LdoLogicAppExport` unwraps the designer code view, an ARM resource GET or a
+  bare definition, keeping values and declarations separate so the round-trip trap cannot bite
+- Offline gate: `Get-LdoLogicAppParameterStatus`, `Test-LdoLogicAppDefinition`,
+  `Assert-LdoLogicAppDefinition`
+- Provider verdict, nothing deployed: `Test-LdoLogicAppDeployment`
+- Round trip: `Export-LdoLogicAppDefinition`, `Compare-LdoLogicAppDefinition`
+- Lifting between estates: `Add-LdoLogicAppParameterDefault`, `Update-LdoLogicAppReference`
+- Estate reads: `Get-LdoLogicAppConnection`, `Get-LdoLogicAppDeployOrder`
+
+```powershell
+# Fail the build naming every parameter that will not have a value at deploy time.
+Get-ChildItem ./templates/*.json.tftpl | Assert-LdoLogicAppDefinition
+
+# Ask Azure whether it would accept this, without deploying it.
+Test-LdoLogicAppDeployment -Path ./export.json -ResourceGroupName rg-soc-uks-dev-01
+```
+
 ### Github
 GitHub Actions helpers.
 - `Get-LdoGitHubActionsInput`

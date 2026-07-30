@@ -12,7 +12,7 @@
     RootModule = '.\LibreDevOpsHelpers.psm1'
 
     # Version number of this module.
-    ModuleVersion = '2.10.2'
+    ModuleVersion = '2.11.0'
 
     # Supported PSEditions
     # CompatiblePSEditions = @()
@@ -89,6 +89,7 @@
         'LibreDevOpsHelpers.Homebrew/LibreDevOpsHelpers.Homebrew.psm1',
         'LibreDevOpsHelpers.Kql/LibreDevOpsHelpers.Kql.psm1',
         'LibreDevOpsHelpers.Logger/LibreDevOpsHelpers.Logger.psm1',
+        'LibreDevOpsHelpers.LogicApps/LibreDevOpsHelpers.LogicApps.psm1',
         'LibreDevOpsHelpers.MachineConfig/LibreDevOpsHelpers.MachineConfig.psm1',
         'LibreDevOpsHelpers.Packer/LibreDevOpsHelpers.Packer.psm1',
         'LibreDevOpsHelpers.Pester/LibreDevOpsHelpers.Pester.psm1',
@@ -113,6 +114,7 @@
         'Add-LdoFinding',
         'Add-LdoFunctionAppCurrentIpRule',
         'Add-LdoKeyVaultCurrentIpRule',
+        'Add-LdoLogicAppParameterDefault',
         'Add-LdoMdatpExclusion',
         'Add-LdoNsgCurrentIpRule',
         'Add-LdoNspCurrentIpRule',
@@ -127,11 +129,13 @@
         'Assert-LdoGitRepository',
         'Assert-LdoHomebrewPath',
         'Assert-LdoLastExitCode',
+        'Assert-LdoLogicAppDefinition',
         'Build-LdoDockerImage',
         'Clear-LdoFinding',
         'Clear-LdoGraphTokenCache',
         'Clear-LdoTraceContext',
         'Clear-LdoVenv',
+        'Compare-LdoLogicAppDefinition',
         'Compress-LdoFunctionAppSource',
         'Connect-LdoAzureCli',
         'Connect-LdoAzureCliClientSecret',
@@ -148,6 +152,7 @@
         'Send-LdoSplunkHecEvent',
         'Test-LdoSplunkConnection',
         'Test-LdoTerraformPlanChangesResource',
+        'ConvertFrom-LdoLogicAppExport',
         'ConvertFrom-LdoYaml',
         'ConvertTo-LdoBoolean',
         'ConvertTo-LdoCanonicalDetectionRule',
@@ -157,6 +162,7 @@
         'Disconnect-LdoAzureCli',
         'Disconnect-LdoAzurePowerShell',
         'Export-LdoGitContextToTfVar',
+        'Export-LdoLogicAppDefinition',
         'Format-LdoTerraform',
         'Format-LdoTerraformCode',
         'Format-LdoTerraformOutputs',
@@ -180,6 +186,9 @@
         'Get-LdoGraphErrorDetail',
         'Get-LdoGraphToken',
         'Get-LdoLogFormat',
+        'Get-LdoLogicAppConnection',
+        'Get-LdoLogicAppDeployOrder',
+        'Get-LdoLogicAppParameterStatus',
         'Get-LdoLogLevel',
         'Get-LdoMachineConfigPackageHash',
         'Get-LdoMdatpHealth',
@@ -287,12 +296,15 @@
         'Test-LdoDetectionRuleFile',
         'Test-LdoGlab',
         'Test-LdoKqlSyntax',
+        'Test-LdoLogicAppDefinition',
+        'Test-LdoLogicAppDeployment',
         'Test-LdoMachineConfigPackage',
         'Test-LdoPath',
         'Test-LdoTenv',
         'Test-LdoUv',
         'Test-LdoZeroExitCode',
         'Update-LdoDefenderAvSignature',
+        'Update-LdoLogicAppReference',
         'Update-LdoMdatpDefinition',
         'Update-LdoReadmeWithTerraformDocs',
         'Use-LdoVenv',

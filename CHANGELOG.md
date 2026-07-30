@@ -2,6 +2,39 @@
 
 All notable changes to LibreDevOpsHelpers are recorded here.
 
+## 2.11.0
+
+### Added
+- New `LibreDevOpsHelpers.LogicApps` module for Consumption Logic App workflows, covering the
+  authoring round trip. The offline commands need no network access and deploy nothing; the
+  provider check creates nothing and costs nothing.
+  - `ConvertFrom-LdoLogicAppExport` detects and unwraps the three shapes Azure hands you (the
+    designer code view, an ARM resource GET, and a bare definition), returning the definition, the
+    wrapper's parameter VALUES and the declarations separately. A bare definition reports no values
+    at all, which is what stops its declarations being misread as values.
+  - `Get-LdoLogicAppParameterStatus`, `Test-LdoLogicAppDefinition` and
+    `Assert-LdoLogicAppDefinition` check every declared parameter has a value by deploy time, from
+    a defaultValue, the pasted wrapper, or a deployment tool input. `$connections` is exempt because
+    a deployment tool generates it, and `SecureString` / `SecureObject` are never satisfied by a
+    wrapper so the secret stays out of the definition, the plan and the state. Anything left over
+    is what the engine rejects with `InvalidTemplate`, "the value for the workflow parameter is not
+    provided".
+  - `Test-LdoLogicAppDeployment` posts a definition to the Logic Apps validate endpoint for the
+    resource provider's own verdict without deploying it.
+  - `Export-LdoLogicAppDefinition` reads deployed workflows back out to disk, and
+    `Compare-LdoLogicAppDefinition` diffs two definitions structurally across shapes, so drift
+    review is a JSON path diff rather than archaeology.
+  - `Add-LdoLogicAppParameterDefault` back-fills each wrapper value onto its declaration so an
+    export is self-sufficient on its own, and `Update-LdoLogicAppReference` rewrites the absolute
+    ARM ids that tie a definition to one estate.
+  - `Get-LdoLogicAppConnection` extracts the managed API connections and whether each authenticates
+    with a managed identity. `Get-LdoLogicAppDeployOrder` derives deployment tiers from the
+    definitions themselves, because a native `Workflow` dispatch action's target is validated at PUT
+    time (`NestedWorkflowNotFound`), and throws on a dispatch cycle.
+  - Templates are read without rendering: the token scanner tracks quoting, escapes and brace
+    nesting, because a token in value position (`"interval": ${x}`) has to gain quotes or the
+    result will not parse.
+
 ## 2.8.0
 
 ### Added
