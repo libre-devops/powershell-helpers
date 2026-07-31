@@ -230,6 +230,112 @@ function Resolve-LdoLogicAppDocument {
     }
 }
 
+function Get-LdoLogicAppMemberValue {
+    <#
+    .SYNOPSIS
+        Reads a member off either a hashtable or a PSCustomObject.
+
+    .DESCRIPTION
+        Private. Definitions arrive as PSCustomObject from ConvertFrom-Json, but callers may hand in
+        hashtables, so member access is normalised in one place rather than at every reader.
+
+    .PARAMETER InputObject
+        The object to read from.
+
+    .PARAMETER Name
+        The member name.
+    #>
+    [CmdletBinding()]
+    [OutputType([object])]
+    param(
+        [Parameter(Mandatory)][AllowNull()]$InputObject,
+        [Parameter(Mandatory)][string]$Name
+    )
+
+    if (-not (Test-LdoLogicAppMember -InputObject $InputObject -Name $Name)) { return $null }
+    if ($InputObject -is [hashtable]) { return $InputObject[$Name] }
+    return $InputObject.PSObject.Properties[$Name].Value
+}
+
+function Get-LdoLogicAppActionNode {
+    <#
+    .SYNOPSIS
+        Yields every action in a definition, however deeply nested.
+
+    .DESCRIPTION
+        Private. Workflow Definition Language nests actions inside containers: a Scope, a Foreach and
+        an Until each carry their own 'actions'; an If carries 'actions' plus 'else.actions'; a Switch
+        carries 'cases.<name>.actions' plus 'default.actions'. Anything that reads only the top level
+        sees a fraction of the workflow, which is precisely how a whole-text search ends up standing
+        in for a structural walk and reporting things that are not there.
+
+    .PARAMETER Actions
+        The actions collection to walk.
+
+    .PARAMETER Prefix
+        Internal. The path accumulated so far, so a nested action is reported by its full path.
+
+    .EXAMPLE
+        Get-LdoLogicAppActionNode -Actions $definition.actions | Where-Object { $_.Action.type -eq 'Workflow' }
+
+    .OUTPUTS
+        System.Management.Automation.PSCustomObject
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter()][AllowNull()]$Actions,
+        [Parameter()][string]$Prefix = ''
+    )
+
+    if ($null -eq $Actions) { return }
+
+    $names = if ($Actions -is [hashtable]) { @($Actions.Keys) }
+    else { @($Actions.PSObject.Properties | ForEach-Object { $_.Name }) }
+
+    foreach ($name in $names) {
+        $action = Get-LdoLogicAppMemberValue -InputObject $Actions -Name $name
+        if ($null -eq $action) { continue }
+
+        $path = if ($Prefix) { "$Prefix/$name" } else { $name }
+
+        [pscustomobject]@{
+            Name = $name
+            Path = $path
+            Action = $action
+        }
+
+        # Every shape that can hold nested actions. 'else' and 'default' are quoted because they are
+        # PowerShell keywords, and unquoted member access on them is a parse hazard.
+        $containers = [System.Collections.Generic.List[object]]::new()
+        $nested = Get-LdoLogicAppMemberValue -InputObject $action -Name 'actions'
+        if ($null -ne $nested) { $containers.Add($nested) }
+
+        foreach ($branch in @('else', 'default')) {
+            $node = Get-LdoLogicAppMemberValue -InputObject $action -Name $branch
+            if ($null -ne $node) {
+                $branchActions = Get-LdoLogicAppMemberValue -InputObject $node -Name 'actions'
+                if ($null -ne $branchActions) { $containers.Add($branchActions) }
+            }
+        }
+
+        $cases = Get-LdoLogicAppMemberValue -InputObject $action -Name 'cases'
+        if ($null -ne $cases) {
+            $caseNames = if ($cases -is [hashtable]) { @($cases.Keys) }
+            else { @($cases.PSObject.Properties | ForEach-Object { $_.Name }) }
+            foreach ($caseName in $caseNames) {
+                $case = Get-LdoLogicAppMemberValue -InputObject $cases -Name $caseName
+                $caseActions = Get-LdoLogicAppMemberValue -InputObject $case -Name 'actions'
+                if ($null -ne $caseActions) { $containers.Add($caseActions) }
+            }
+        }
+
+        foreach ($container in $containers) {
+            Get-LdoLogicAppActionNode -Actions $container -Prefix $path
+        }
+    }
+}
+
 # -------------------------------------------------------------------------------------------------
 # Shape detection and unwrapping
 # -------------------------------------------------------------------------------------------------
@@ -1278,6 +1384,126 @@ function Get-LdoLogicAppConnection {
     }
 }
 
+function Get-LdoLogicAppConnectionReference {
+    <#
+    .SYNOPSIS
+        Lists the $connections reference keys a definition actually uses, and whether each is wired.
+
+    .DESCRIPTION
+        A definition refers to a managed connection by an arbitrary KEY, as
+        @parameters('$connections')['<key>']['connectionId']. That key has to match the key of the
+        connection supplied at deploy time, and nothing checks it: the workflow is accepted, saved
+        and then fails at run time because it reaches for a key nothing was wired to.
+
+        This reports the keys from the REFERENCE side, which is the side a definition can be audited
+        from on its own. Get-LdoLogicAppConnection reports the other side, the resolved connections
+        carried in a wrapper's parameter values, and returns nothing for a bare definition because a
+        bare definition has none. Together they answer 'do the two sides agree', which is the
+        question worth asking before a paste or a lift into another estate.
+
+        Wired is $true when the key appears in the export's own $connections VALUE, $false when it
+        does not, and $null for a bare definition, where the question is not answerable from the file
+        and a $false would read as a fault that has not been established.
+
+    .PARAMETER Path
+        Path to a definition file, in any of the three export shapes.
+
+    .PARAMETER Json
+        Raw definition JSON, as an alternative to Path.
+
+    .EXAMPLE
+        Get-ChildItem ./dist/*.json | Get-LdoLogicAppConnectionReference | Where-Object { $_.Wired -eq $false }
+
+        Every definition in an estate that reaches for a connection key nobody wired.
+
+    .EXAMPLE
+        Get-ChildItem ./dist/*.json | Get-LdoLogicAppConnectionReference |
+            Group-Object Name | Select-Object Name, Count
+
+        The estate's distinct connection keys, and how many workflows use each. A key used once is
+        usually a typo or a leftover from a designer session.
+
+    .OUTPUTS
+        System.Management.Automation.PSCustomObject
+    #>
+    [CmdletBinding(DefaultParameterSetName = 'Path')]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory, ParameterSetName = 'Path', ValueFromPipeline, ValueFromPipelineByPropertyName)]
+        [ValidateNotNullOrEmpty()]
+        [Alias('FullName')]
+        [string]$Path,
+
+        [Parameter(Mandatory, ParameterSetName = 'Json')]
+        [ValidateNotNullOrEmpty()]
+        [string]$Json
+    )
+
+    process {
+        $export = if ($PSCmdlet.ParameterSetName -eq 'Path') {
+            ConvertFrom-LdoLogicAppExport -Path $Path
+        }
+        else {
+            ConvertFrom-LdoLogicAppExport -Json $Json
+        }
+
+        # The keys that WERE wired, so each reference can be told whether it resolves. A bare
+        # definition carries no values block at all, which is not the same as an empty one.
+        $wiredKeys = $null
+        if ($export.Shape -ne 'BareDefinition' -and $null -ne $export.ParameterValues) {
+            $connections = Get-LdoLogicAppMemberValue -InputObject $export.ParameterValues -Name '$connections'
+            $value = Get-LdoLogicAppMemberValue -InputObject $connections -Name 'value'
+            if ($null -ne $value) {
+                $wiredKeys = if ($value -is [hashtable]) { @($value.Keys) }
+                else { @($value.PSObject.Properties | ForEach-Object { $_.Name }) }
+            }
+        }
+
+        $pattern = [regex]"\`$connections'\)\[\'([^\']+)\'\]"
+        $usage = [ordered]@{}
+
+        # Triggers as well as actions: a Sentinel incident trigger or any other ApiConnection trigger
+        # reaches for a connection key exactly as an action does, so auditing only the actions misses
+        # the one connection some workflows use most visibly.
+        $nodes = [System.Collections.Generic.List[object]]::new()
+        $triggers = Get-LdoLogicAppMemberValue -InputObject $export.Definition -Name 'triggers'
+        if ($null -ne $triggers) {
+            $triggerNames = if ($triggers -is [hashtable]) { @($triggers.Keys) }
+            else { @($triggers.PSObject.Properties | ForEach-Object { $_.Name }) }
+            foreach ($triggerName in $triggerNames) {
+                $nodes.Add([pscustomobject]@{
+                        Path = "triggers/$triggerName"
+                        Action = (Get-LdoLogicAppMemberValue -InputObject $triggers -Name $triggerName)
+                    })
+            }
+        }
+
+        $actions = Get-LdoLogicAppMemberValue -InputObject $export.Definition -Name 'actions'
+        foreach ($node in (Get-LdoLogicAppActionNode -Actions $actions)) { $nodes.Add($node) }
+
+        foreach ($node in $nodes) {
+            $inputs = Get-LdoLogicAppMemberValue -InputObject $node.Action -Name 'inputs'
+            if ($null -eq $inputs) { continue }
+            foreach ($match in $pattern.Matches(($inputs | ConvertTo-Json -Depth 100 -Compress))) {
+                $key = $match.Groups[1].Value
+                if (-not $usage.Contains($key)) { $usage[$key] = [System.Collections.Generic.List[string]]::new() }
+                if (-not $usage[$key].Contains($node.Path)) { $usage[$key].Add($node.Path) }
+            }
+        }
+
+        foreach ($key in $usage.Keys) {
+            [pscustomobject]@{
+                Workflow = $export.Name
+                Name = $key
+                ActionCount = $usage[$key].Count
+                Actions = @($usage[$key])
+                Wired = if ($null -eq $wiredKeys) { $null } else { $wiredKeys -contains $key }
+                Source = $export.Source
+            }
+        }
+    }
+}
+
 function Get-LdoLogicAppDeployOrder {
     <#
     .SYNOPSIS
@@ -1331,8 +1557,26 @@ function Get-LdoLogicAppDeployOrder {
         $names = @($exports.Keys)
         $dependencies = @{}
         foreach ($name in $names) {
-            $text = $exports[$name].Text
-            $dependencies[$name] = @($names | Where-Object { $_ -ne $name -and $text -match [regex]::Escape("/workflows/$_") })
+            # Only a native Workflow dispatch action creates a deploy-order dependency, because only
+            # its target is resolved at PUT time. Deriving this from the definition TEXT instead
+            # counts any mention of a sibling's id, so a watchdog that merely lists the workflows it
+            # monitors reads as a dispatcher and is pushed into a tier that does not exist.
+            $targets = [System.Collections.Generic.List[string]]::new()
+            foreach ($node in (Get-LdoLogicAppActionNode -Actions $exports[$name].Definition.actions)) {
+                $type = Get-LdoLogicAppMemberValue -InputObject $node.Action -Name 'type'
+                if ($type -ne 'Workflow') { continue }
+
+                $inputs = Get-LdoLogicAppMemberValue -InputObject $node.Action -Name 'inputs'
+                $host_ = Get-LdoLogicAppMemberValue -InputObject $inputs -Name 'host'
+                $workflow = Get-LdoLogicAppMemberValue -InputObject $host_ -Name 'workflow'
+                $id = Get-LdoLogicAppMemberValue -InputObject $workflow -Name 'id'
+                if ($id) { $targets.Add([string]$id) }
+            }
+
+            $dependencies[$name] = @($names | Where-Object {
+                    $sibling = $_
+                    $sibling -ne $name -and @($targets | Where-Object { $_ -match ('/workflows/' + [regex]::Escape($sibling) + '$') }).Count -gt 0
+                })
         }
 
         $tiers = @{}
@@ -1500,5 +1744,6 @@ Export-ModuleMember -Function `
     'Add-LdoLogicAppParameterDefault', `
     'Update-LdoLogicAppReference', `
     'Get-LdoLogicAppConnection', `
+    'Get-LdoLogicAppConnectionReference', `
     'Get-LdoLogicAppDeployOrder', `
     'Compare-LdoLogicAppDefinition'

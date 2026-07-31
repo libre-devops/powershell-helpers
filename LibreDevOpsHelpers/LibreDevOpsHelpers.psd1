@@ -12,7 +12,7 @@
     RootModule = '.\LibreDevOpsHelpers.psm1'
 
     # Version number of this module.
-    ModuleVersion = '2.11.1'
+    ModuleVersion = '2.12.0'
 
     # Supported PSEditions
     # CompatiblePSEditions = @()
@@ -187,6 +187,7 @@
         'Get-LdoGraphToken',
         'Get-LdoLogFormat',
         'Get-LdoLogicAppConnection',
+        'Get-LdoLogicAppConnectionReference',
         'Get-LdoLogicAppDeployOrder',
         'Get-LdoLogicAppParameterStatus',
         'Get-LdoLogLevel',

@@ -2,6 +2,28 @@
 
 All notable changes to LibreDevOpsHelpers are recorded here.
 
+## 2.12.0
+
+### Added
+- `Get-LdoLogicAppConnectionReference` reports the `$connections` keys a definition actually USES,
+  which is the side a definition can be audited from on its own. A definition names its managed
+  connections by an arbitrary key, that key has to match the key supplied at deploy time, and
+  nothing checks it: the workflow saves, deploys, and only fails when it runs. `Wired` states
+  whether each reference resolves against the export's own `$connections` value, and is `$null`
+  rather than `$false` for a bare definition, where the question is not answerable from the file.
+  Triggers are walked as well as actions, because an incident trigger reaches for a connection
+  exactly as an action does.
+
+### Fixed
+- `Get-LdoLogicAppDeployOrder` no longer reports a dependency that does not exist. It derived the
+  dispatch graph by searching the definition TEXT for `/workflows/<name>`, so a watchdog carrying a
+  list of the workflows it monitors read as a dispatcher and was pushed into a tier of its own. It
+  now walks the action graph and counts only a native `Workflow` action's `inputs.host.workflow.id`,
+  which is the only thing ARM resolves at PUT time. Found by running the module against a real
+  24-workflow estate, where it invented a fourth tier for a workflow with no dispatch action at all.
+  The walk descends into `Scope`, `Foreach`, `Until`, `If`/`else` and `Switch` cases, so a router
+  that dispatches from inside a Switch is no longer missed either.
+
 ## 2.11.1
 
 ### Fixed

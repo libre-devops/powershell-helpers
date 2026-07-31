@@ -421,12 +421,120 @@ Describe 'Get-LdoLogicAppDeployOrder' {
     It 'throws on a dispatch cycle, which no ordering can satisfy' {
         $cycleDir = Join-Path ([System.IO.Path]::GetTempPath()) "ldo-cycle-$([guid]::NewGuid())"
         New-Item -ItemType Directory -Path $cycleDir -Force | Out-Null
-        $a = '{ "definition": { "actions": { "Call": { "inputs": "/providers/Microsoft.Logic/workflows/beta" } } }, "parameters": {} }'
-        $b = '{ "definition": { "actions": { "Call": { "inputs": "/providers/Microsoft.Logic/workflows/alpha" } } }, "parameters": {} }'
-        Set-Content -LiteralPath (Join-Path $cycleDir 'alpha.json') -Value $a -Encoding utf8NoBOM
-        Set-Content -LiteralPath (Join-Path $cycleDir 'beta.json') -Value $b -Encoding utf8NoBOM
+        $call = '{ "definition": { "actions": { "Call": { "type": "Workflow", "inputs": { "host": { "workflow": { "id": "/providers/Microsoft.Logic/workflows/TARGET" } } } } } }, "parameters": {} }'
+        Set-Content -LiteralPath (Join-Path $cycleDir 'alpha.json') -Value $call.Replace('TARGET', 'beta') -Encoding utf8NoBOM
+        Set-Content -LiteralPath (Join-Path $cycleDir 'beta.json') -Value $call.Replace('TARGET', 'alpha') -Encoding utf8NoBOM
 
         { Get-ChildItem "$cycleDir/*.json" | Get-LdoLogicAppDeployOrder } | Should -Throw '*cycle*'
+    }
+
+    It 'does NOT treat a workflow that merely NAMES a sibling as dispatching to it' {
+        # Regression. The dependency used to be derived by searching the definition text for
+        # "/workflows/<name>", so a watchdog carrying a list of the workflows it monitors read as a
+        # dispatcher and was pushed into a tier that does not exist. Found by running this against a
+        # real estate, where it invented a fourth tier for a workflow with no dispatch action at all.
+        $watchDir = Join-Path ([System.IO.Path]::GetTempPath()) "ldo-watch-$([guid]::NewGuid())"
+        New-Item -ItemType Directory -Path $watchDir -Force | Out-Null
+
+        $leafJson = '{ "definition": { "triggers": {}, "actions": {} }, "parameters": {} }'
+        $watchdog = '{ "definition": { "triggers": {}, "actions": { "Probe": { "type": "Http", "inputs": { "uri": "https://management.azure.com/providers/Microsoft.Logic/workflows/handler/runs" } } } }, "parameters": {} }'
+        Set-Content -LiteralPath (Join-Path $watchDir 'handler.json') -Value $leafJson -Encoding utf8NoBOM
+        Set-Content -LiteralPath (Join-Path $watchDir 'watchdog.json') -Value $watchdog -Encoding utf8NoBOM
+
+        $order = Get-ChildItem "$watchDir/*.json" | Get-LdoLogicAppDeployOrder
+        $watch = $order | Where-Object Workflow -EQ 'watchdog'
+        $watch.DependsOn | Should -BeNullOrEmpty
+        $watch.Tier | Should -Be 0
+    }
+
+    It 'finds a dispatch action nested inside a Switch case' {
+        # The walk has to descend: a router puts its dispatches inside Switch cases, so anything
+        # reading only the top-level actions sees none of them.
+        $nestDir = Join-Path ([System.IO.Path]::GetTempPath()) "ldo-nest-$([guid]::NewGuid())"
+        New-Item -ItemType Directory -Path $nestDir -Force | Out-Null
+
+        $nested = '{ "definition": { "actions": { "Route": { "type": "Switch", "cases": { "mde": { "actions": { "Call": { "type": "Workflow", "inputs": { "host": { "workflow": { "id": "/providers/Microsoft.Logic/workflows/handler" } } } } } } } } } }, "parameters": {} }'
+        Set-Content -LiteralPath (Join-Path $nestDir 'handler.json') -Value '{ "definition": { "actions": {} }, "parameters": {} }' -Encoding utf8NoBOM
+        Set-Content -LiteralPath (Join-Path $nestDir 'switcher.json') -Value $nested -Encoding utf8NoBOM
+
+        $order = Get-ChildItem "$nestDir/*.json" | Get-LdoLogicAppDeployOrder
+        ($order | Where-Object Workflow -EQ 'switcher').DependsOn | Should -Contain 'handler'
+    }
+}
+
+Describe 'Get-LdoLogicAppConnectionReference' {
+    BeforeAll {
+        $script:RefWired = @'
+{
+  "definition": {
+    "triggers": {
+      "Incident": {
+        "type": "ApiConnection",
+        "inputs": { "host": { "connection": { "name": "@parameters('$connections')['azuresentinel']['connectionId']" } } }
+      }
+    },
+    "actions": {
+      "Outer": {
+        "type": "Scope",
+        "actions": {
+          "Find": {
+            "type": "ApiConnection",
+            "inputs": { "host": { "connection": { "name": "@parameters('$connections')['servicenow']['connectionId']" } } }
+          }
+        }
+      }
+    },
+    "parameters": { "$connections": { "type": "Object", "defaultValue": {} } }
+  },
+  "parameters": {
+    "$connections": { "value": { "azuresentinel": { "connectionId": "/a" }, "servicenow": { "connectionId": "/b" } } }
+  }
+}
+'@
+    }
+
+    It 'reports a connection referenced by a TRIGGER, not just by actions' {
+        # The Sentinel incident trigger reaches for a connection exactly as an action does, so an
+        # audit that walks only the actions misses the connection some workflows use most visibly.
+        $refs = Get-LdoLogicAppConnectionReference -Json $script:RefWired
+        ($refs | Where-Object Name -EQ 'azuresentinel').Actions | Should -Contain 'triggers/Incident'
+    }
+
+    It 'reports a connection referenced by a NESTED action, with its full path' {
+        $refs = Get-LdoLogicAppConnectionReference -Json $script:RefWired
+        ($refs | Where-Object Name -EQ 'servicenow').Actions | Should -Contain 'Outer/Find'
+    }
+
+    It 'marks a reference wired when the wrapper supplies that key' {
+        # Assert the count first: without it this passes on an empty result, which is exactly how a
+        # broken parameter set went unnoticed until it was checked against a real file.
+        $refs = @(Get-LdoLogicAppConnectionReference -Json $script:RefWired)
+        $refs.Count | Should -Be 2
+        @($refs | Where-Object { $_.Wired -ne $true }).Count | Should -Be 0
+    }
+
+    It 'marks a reference UNWIRED when the wrapper supplies a different key' {
+        # The failure this exists to catch: the definition says one key, the deploy wires another.
+        # The workflow saves, deploys, and only fails when it runs.
+        $mismatched = $script:RefWired.Replace('"servicenow": { "connectionId": "/b" }', '"service-now": { "connectionId": "/b" }')
+        $refs = @(Get-LdoLogicAppConnectionReference -Json $mismatched)
+        $snow = $refs | Where-Object Name -EQ 'servicenow'
+        $snow | Should -Not -BeNullOrEmpty
+        $snow.Wired | Should -Be $false
+    }
+
+    It 'leaves Wired as null for a bare definition, where the question is unanswerable' {
+        # A bare definition carries no values block, which is not the same as carrying an empty one.
+        # Reporting $false here would read as a fault that has not been established.
+        $bare = (ConvertFrom-Json $script:RefWired).definition | ConvertTo-Json -Depth 100
+        $refs = Get-LdoLogicAppConnectionReference -Json $bare
+        $refs.Count | Should -BeGreaterThan 0
+        @($refs | Where-Object { $null -ne $_.Wired }).Count | Should -Be 0
+    }
+
+    It 'counts each distinct key once per action that uses it' {
+        $refs = Get-LdoLogicAppConnectionReference -Json $script:RefWired
+        ($refs | Where-Object Name -EQ 'servicenow').ActionCount | Should -Be 1
     }
 }
 

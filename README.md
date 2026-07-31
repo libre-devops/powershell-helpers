@@ -190,11 +190,25 @@ native `Workflow` dispatch action's target is checked at PUT time (`NestedWorkfl
 - Provider verdict, nothing deployed: `Test-LdoLogicAppDeployment`
 - Round trip: `Export-LdoLogicAppDefinition`, `Compare-LdoLogicAppDefinition`
 - Lifting between estates: `Add-LdoLogicAppParameterDefault`, `Update-LdoLogicAppReference`
-- Estate reads: `Get-LdoLogicAppConnection`, `Get-LdoLogicAppDeployOrder`
+- Estate reads: `Get-LdoLogicAppConnection`, `Get-LdoLogicAppConnectionReference`,
+  `Get-LdoLogicAppDeployOrder`
+
+`Get-LdoLogicAppConnectionReference` answers the question a definition can be audited on alone:
+which `$connections` keys does it USE, and does each resolve against what was wired? A definition
+names its connections by an arbitrary key, that key has to match the one supplied at deploy time,
+and nothing checks it, so a mismatch saves, deploys, and only fails when the workflow runs.
 
 ```powershell
 # Fail the build naming every parameter that will not have a value at deploy time.
 Get-ChildItem ./templates/*.json.tftpl | Assert-LdoLogicAppDefinition
+
+# Every definition in an estate that reaches for a connection key nobody wired.
+Get-ChildItem ./dist/*.json | Get-LdoLogicAppConnectionReference | Where-Object { $_.Wired -eq $false }
+
+# The estate's distinct connection keys, and how many workflows use each. A key used once is
+# usually a typo or a leftover from a designer session.
+Get-ChildItem ./dist/*.json | Get-LdoLogicAppConnectionReference |
+    Group-Object Name | Select-Object Name, Count
 
 # Ask Azure whether it would accept this, without deploying it.
 Test-LdoLogicAppDeployment -Path ./export.json -ResourceGroupName rg-soc-uks-dev-01
