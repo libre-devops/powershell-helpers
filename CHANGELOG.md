@@ -2,6 +2,38 @@
 
 All notable changes to LibreDevOpsHelpers are recorded here.
 
+## 2.13.0
+
+### Added
+- `Write-LdoLog` gains `Otlp` and `OtlpIndented` formats, which emit the OpenTelemetry wire
+  format: one complete OTLP/JSON `ExportLogsServiceRequest` per line, carrying one record. The
+  collector-contrib `otlpjsonfile` receiver reads that directly, with no parser stack, no severity
+  mapping and no timestamp layout to configure. Selectable per call with `-Format`, globally with
+  `Set-LdoLogFormat`, or from `LDO_LOG_FORMAT`.
+  - `service.name`, `service.version` and `deployment.environment` become resource attributes
+    rather than fields on the record, because that is where the OTel data model puts them.
+    `invocation` and `correlation_id` stay log record attributes, since they describe one event.
+    The message becomes `body` rather than an attribute called `message`.
+  - The ambient trace context becomes `traceId` and `spanId`. An id that is not valid hex of the
+    right width is DROPPED rather than emitted, because one invalid id makes a collector reject
+    the whole payload, and a logging preference must never fail the thing it is logging about.
+    When no trace id is set, a correlation id that is a GUID seeds one (a GUID is 16 bytes, which
+    is exactly a trace id), so a run whose entry point only set a correlation id is still one
+    trace.
+  - Encoding follows OTLP's JSON rules rather than stock proto3 where the two differ: timestamps
+    and 64-bit integers are strings, `severityNumber` is the integer and not the enum name, ids
+    are hex and not base64, and every attribute value is a typed `AnyValue`. Verified by parsing
+    the output against the `opentelemetry-proto` `ExportLogsServiceRequest` message with unknown
+    fields rejected.
+
+### Fixed
+- The `Json` format's help no longer claims to be aligned to the OpenTelemetry log data model. It
+  borrows OTel's vocabulary (the severity numbers, the `service.*` semantic conventions) but emits
+  a flat object rather than the `resourceLogs`/`scopeLogs`/`logRecords` envelope, so an OTLP
+  endpoint will not accept it and ingesting it needs a parser stack. The format itself is
+  unchanged and stays the default: it is markedly easier to query in the backends these records
+  actually land in. `Otlp` is an addition, not a replacement.
+
 ## 2.12.0
 
 ### Added
