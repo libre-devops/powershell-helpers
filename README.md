@@ -36,11 +36,11 @@ Import-Module LibreDevOpsHelpers.Terraform
 - Functions validate their input, throw on failure (they never call `exit`), and check the exit
   code of any native CLI they invoke.
 - Logging goes through `Write-LdoLog`, which writes to the correct stream and never pollutes a
-  function's return value. It emits structured JSON by default (one flat object per line, for log
-  aggregators); switch to a human-readable line with `Set-LdoLogFormat -Format Text`, or to the
-  OpenTelemetry wire format with `Set-LdoLogFormat -Format Otlp`. Control verbosity with
-  `Set-LdoLogLevel`. Both default to the `LDO_LOG_FORMAT` / `LDO_LOG_LEVEL` environment variables
-  when set.
+  function's return value. It emits the OpenTelemetry wire format by default (one OTLP/JSON
+  export request per line, which a collector ingests directly); switch to a human-readable line
+  with `Set-LdoLogFormat -Format Text`, or to the older flat record with
+  `Set-LdoLogFormat -Format Json`. Control verbosity with `Set-LdoLogLevel`. Both default to the
+  `LDO_LOG_FORMAT` / `LDO_LOG_LEVEL` environment variables when set.
 
 ## Quick start
 
@@ -60,8 +60,8 @@ Connect-LdoAzureCli -Method ClientSecret -ClientId $id -ClientSecret $secret -Te
 ## Modules and commands
 
 ### Logger
-Levelled, timestamped logging routed to non-output streams. Structured JSON by default, with an
-optional human-readable text format and an OpenTelemetry wire format.
+Levelled, timestamped logging routed to non-output streams. The OpenTelemetry wire format by
+default, with an optional flat JSON record and a human-readable text format.
 - `Write-LdoLog`, `Set-LdoLogLevel`, `Get-LdoLogLevel`, `Set-LdoLogFormat`, `Get-LdoLogFormat`
 
 Five formats, selected per call with `-Format` or globally with `Set-LdoLogFormat` /
@@ -69,10 +69,10 @@ Five formats, selected per call with `-Format` or globally with `Set-LdoLogForma
 
 | Format | What it emits |
 | --- | --- |
-| `Json` | Default. One compact flat object per line. Borrows OpenTelemetry's vocabulary (the severity numbers, the `service.*` semantic conventions) but is NOT OTLP: ingesting it needs a parser stack, typically a `filelog` receiver with `json_parser` and `severity_parser`. Easiest to query in Splunk, Elasticsearch and Azure Monitor, which is why it stays the default. |
-| `JsonIndented` | The same record, pretty-printed. Not newline-delimited, so local debugging only. |
-| `Otlp` | One complete OTLP/JSON `ExportLogsServiceRequest` per line, carrying one record. The collector-contrib `otlpjsonfile` receiver reads it directly, with no parser stack, no severity mapping and no timestamp layout to configure. Roughly three times the bytes, which is the price of that. |
-| `OtlpIndented` | The same payload, pretty-printed. Local debugging only. |
+| `Otlp` | **Default.** One complete OTLP/JSON `ExportLogsServiceRequest` per line, carrying one record. The collector-contrib `otlpjsonfile` receiver reads it directly, with no parser stack, no severity mapping and no timestamp layout to configure. |
+| `OtlpIndented` | The same payload, pretty-printed. Not newline-delimited, so local debugging only. |
+| `Json` | One compact flat object per line. Borrows OpenTelemetry's vocabulary (the severity numbers, the `service.*` semantic conventions) but is NOT OTLP: ingesting it needs a parser stack, typically a `filelog` receiver with `json_parser` and `severity_parser`. Roughly a third of the bytes, and easier to query in a backend that is not OTel-aware, such as Azure Monitor via KQL. |
+| `JsonIndented` | The same record, pretty-printed. Local debugging only. |
 | `Text` | Human-readable coloured line for interactive CLI use. |
 
 In `Otlp` mode `service.name`, `service.version` and `deployment.environment` become resource

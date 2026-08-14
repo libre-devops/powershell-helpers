@@ -11,7 +11,7 @@ $script:LdoSeverityNumbers = @{ TRACE = 1; DEBUG = 5; INFO = 9; SUCCESS = 9; WAR
 
 # Minimum level and output format. Both can be seeded from the environment so that
 # operators can control logging in CI/CD without touching code, and both fall back to
-# sensible defaults (INFO floor; structured JSON) when unset or invalid.
+# sensible defaults (INFO floor; OTLP) when unset or invalid.
 $script:LdoMinLogLevel = if ($env:LDO_LOG_LEVEL -and $script:LdoLogLevels.ContainsKey($env:LDO_LOG_LEVEL.ToUpperInvariant())) {
     $env:LDO_LOG_LEVEL.ToUpperInvariant()
 }
@@ -21,10 +21,10 @@ else {
 
 $script:LdoLogFormat = switch -Regex ($env:LDO_LOG_FORMAT) {
     '^(?i)otlpindented$' { 'OtlpIndented'; break }
-    '^(?i)otlp$' { 'Otlp'; break }
     '^(?i)jsonindented$' { 'JsonIndented'; break }
+    '^(?i)json$' { 'Json'; break }
     '^(?i)text$' { 'Text'; break }
-    default { 'Json' }  # covers 'json', unset, and any unrecognised value
+    default { 'Otlp' }  # covers 'otlp', unset, and any unrecognised value
 }
 
 # InstrumentationScope name stamped on every OTLP record. This identifies the LOGGER, not the
@@ -94,17 +94,18 @@ function Set-LdoLogFormat {
 
     .DESCRIPTION
         Controls how every log message is rendered unless a call overrides it with its
-        own -Format. The default is Json, which emits one compact FLAT JSON object per
-        line (newline-delimited JSON) suitable for ingestion by log aggregators such as
-        Splunk, Elasticsearch or Azure Monitor. Otlp emits the OpenTelemetry wire format
-        instead, which a collector reads directly. Text emits a human-readable, coloured
-        line for interactive CLI use. The initial value can also be supplied via the
-        LDO_LOG_FORMAT environment variable.
+        own -Format. The default is Otlp, the OpenTelemetry wire format: one complete
+        OTLP/JSON export request per line, which a collector ingests directly with no
+        parser stack. Json emits one compact FLAT object per line instead, which is
+        easier to query in a backend that is not OTel-aware, such as Azure Monitor via
+        KQL. Text emits a human-readable, coloured line for interactive CLI use. The
+        initial value can also be supplied via the LDO_LOG_FORMAT environment variable.
 
     .PARAMETER Format
-        Json (compact flat object, one per line), JsonIndented (pretty-printed, for local
-        debugging only - not newline-delimited), Otlp (one complete OTLP/JSON export
-        request per line), OtlpIndented (pretty-printed OTLP), or Text.
+        Otlp (default; one complete OTLP/JSON export request per line), OtlpIndented
+        (pretty-printed OTLP, local debugging only - not newline-delimited), Json
+        (compact flat object, one per line), JsonIndented (pretty-printed, local
+        debugging only), or Text.
 
     .EXAMPLE
         Set-LdoLogFormat -Format Text
@@ -112,16 +113,16 @@ function Set-LdoLogFormat {
         Switches subsequent log output to the human-readable coloured format.
 
     .EXAMPLE
-        Set-LdoLogFormat -Format Otlp
+        Set-LdoLogFormat -Format Json
 
-        Switches subsequent log output to the OpenTelemetry wire format, so an OTel
-        collector can ingest it with the otlpjsonfile receiver and no parser stack.
+        Switches subsequent log output to the flat record, for a backend that is not
+        OTel-aware and would need a parser stack to read OTLP.
     #>
     [CmdletBinding()]
     [OutputType([void])]
     param(
         [Parameter(Mandatory)]
-        [ValidateSet('Json', 'JsonIndented', 'Otlp', 'OtlpIndented', 'Text')]
+        [ValidateSet('Otlp', 'OtlpIndented', 'Json', 'JsonIndented', 'Text')]
         [string]$Format
     )
 
@@ -134,7 +135,8 @@ function Get-LdoLogFormat {
         Returns the current default output format.
 
     .DESCRIPTION
-        One of Json, JsonIndented, Otlp, OtlpIndented or Text. See Set-LdoLogFormat.
+        One of Otlp (the default), OtlpIndented, Json, JsonIndented or Text. See
+        Set-LdoLogFormat.
     #>
     [CmdletBinding()]
     [OutputType([string])]
@@ -149,7 +151,7 @@ function Set-LdoTraceContext {
         Sets the ambient trace context stamped onto every log record.
 
     .DESCRIPTION
-        Sets the trace_id, span_id and correlation_id that Write-LdoLog adds to each JSON
+        Sets the trace_id, span_id and correlation_id that Write-LdoLog adds to each structured
         record while a trace context is active. Only the supplied values are changed; omit a
         parameter to leave it untouched. Pass -Generate to fill any currently-empty value with
         a fresh cryptographically strong identifier (trace_id and correlation_id are 32 hex
@@ -261,30 +263,29 @@ function Write-LdoLog {
 
     .DESCRIPTION
         The single logging entry point for all LibreDevOpsHelpers modules. By default each
-        message is rendered as one compact FLAT JSON object (newline-delimited JSON) that borrows
-        the OpenTelemetry log data model's vocabulary: a UTC ISO-8601 timestamp, level,
-        severity_number, message, service.name, and the trace_id / span_id / correlation_id from
-        the ambient trace context when set (see Set-LdoTraceContext). The lean "invocation" field
-        is kept as an extra attribute. Additional fields can be merged via -Data.
+        message is rendered as one complete OTLP/JSON ExportLogsServiceRequest per line, carrying
+        exactly one record: the OpenTelemetry wire format, which the collector-contrib
+        otlpjsonfile receiver ingests directly with no parser stack, no severity mapping and no
+        timestamp layout to configure. Additional fields can be merged via -Data, and become
+        typed OTLP attributes.
 
-        Json is NOT OTLP, and an OTLP endpoint will not accept it: the severity numbers and the
-        resource keys are the OTel ones, but the record is a single flat object rather than the
-        resourceLogs/scopeLogs/logRecords envelope. Ingesting it needs a parser stack, typically a
-        filelog receiver with json_parser and severity_parser. It stays the default because it is
-        markedly easier to query in Splunk, Elasticsearch and Azure Monitor, which is where these
-        records actually land.
+        Pass -Format Json (or call Set-LdoLogFormat) for the older flat record: one compact JSON
+        object per line carrying a UTC ISO-8601 timestamp, level, severity_number, message,
+        service.name, invocation and the ambient trace context. It borrows OTel's vocabulary
+        without being OTLP, so an OTLP endpoint will not accept it and ingesting it needs a
+        parser stack, typically a filelog receiver with json_parser and severity_parser. It is
+        still the better choice for a backend that is not OTel-aware, such as Azure Monitor
+        queried with KQL, where a flat object is far easier to work with and OTLP is roughly
+        three times the bytes.
 
-        Pass -Format Otlp (or call Set-LdoLogFormat) for the real wire format: one complete
-        ExportLogsServiceRequest per line, which the collector-contrib otlpjsonfile receiver reads
-        directly with no parser stack, no severity mapping and no timestamp layout to configure.
-        It costs roughly three times the bytes, which is the price of needing no parser stack.
         Pass -Format Text for a human-readable coloured line instead.
 
         service.name defaults to the LDO_SERVICE_NAME environment variable, falling back to the
         invocation name when unset; service.version (LDO_SERVICE_VERSION) and
         deployment.environment (LDO_DEPLOYMENT_ENVIRONMENT) are added when their environment
-        variables are set. In Otlp mode these three become resource attributes rather than fields
-        on the record, because that is where the OTel data model puts them.
+        variables are set. In Otlp mode these three are resource attributes rather than fields on
+        the record, because that is where the OTel data model puts them, and the ambient trace
+        context (see Set-LdoTraceContext) becomes traceId and spanId.
 
         Each level is routed to a stream that never touches the success (output) pipeline, so the
         function is safe to call from inside other functions without corrupting their return
@@ -312,13 +313,13 @@ function Write-LdoLog {
         prefix. Defaults to the immediate caller's command name when not supplied.
 
     .PARAMETER Data
-        Optional hashtable of additional structured properties merged into the JSON
-        record (for example resource names or durations). Ignored in Text mode.
+        Optional hashtable of additional structured properties merged into the record (for
+        example resource names or durations). Ignored in Text mode.
 
     .PARAMETER Format
-        Overrides the module default output format for this call only. Json (compact flat
-        object), JsonIndented (pretty-printed, for local debugging), Otlp (one complete
-        OTLP/JSON export request per line), OtlpIndented, or Text.
+        Overrides the module default output format for this call only. Otlp (default; one
+        complete OTLP/JSON export request per line), OtlpIndented, Json (compact flat object),
+        JsonIndented (pretty-printed, for local debugging), or Text.
 
     .EXAMPLE
         Write-LdoLog -Level INFO -Message 'Starting deployment'
@@ -344,7 +345,7 @@ function Write-LdoLog {
 
         [hashtable]$Data,
 
-        [ValidateSet('Json', 'JsonIndented', 'Otlp', 'OtlpIndented', 'Text')]
+        [ValidateSet('Otlp', 'OtlpIndented', 'Json', 'JsonIndented', 'Text')]
         [string]$Format
     )
 

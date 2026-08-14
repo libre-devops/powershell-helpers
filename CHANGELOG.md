@@ -2,14 +2,26 @@
 
 All notable changes to LibreDevOpsHelpers are recorded here.
 
-## 2.13.0
+## 3.0.0
+
+### Changed
+- **Breaking: `Otlp` is now the default log format.** `Write-LdoLog` emitted the flat `Json`
+  record by default; it now emits the OpenTelemetry wire format. Anything parsing the output of a
+  LibreDevOpsHelpers command expecting flat `level` / `message` / `severity_number` fields will
+  need either updating or pinning back with `Set-LdoLogFormat -Format Json`, `-Format Json` per
+  call, or `LDO_LOG_FORMAT=json`. Nothing else about `Json` changed, and it remains fully
+  supported: it is still the better shape for a backend that is not OTel-aware, such as Azure
+  Monitor queried with KQL.
+- An unrecognised `LDO_LOG_FORMAT` now degrades to `Otlp` rather than `Json`, following the
+  default. The degradation is still silent and deliberate: a typo in a logging preference must
+  never stop the thing being logged about.
 
 ### Added
 - `Write-LdoLog` gains `Otlp` and `OtlpIndented` formats, which emit the OpenTelemetry wire
   format: one complete OTLP/JSON `ExportLogsServiceRequest` per line, carrying one record. The
   collector-contrib `otlpjsonfile` receiver reads that directly, with no parser stack, no severity
-  mapping and no timestamp layout to configure. Selectable per call with `-Format`, globally with
-  `Set-LdoLogFormat`, or from `LDO_LOG_FORMAT`.
+  mapping and no timestamp layout to configure. `Otlp` is the default; `-Format`,
+  `Set-LdoLogFormat` and `LDO_LOG_FORMAT` all still select any of the five.
   - `service.name`, `service.version` and `deployment.environment` become resource attributes
     rather than fields on the record, because that is where the OTel data model puts them.
     `invocation` and `correlation_id` stay log record attributes, since they describe one event.
@@ -30,9 +42,8 @@ All notable changes to LibreDevOpsHelpers are recorded here.
 - The `Json` format's help no longer claims to be aligned to the OpenTelemetry log data model. It
   borrows OTel's vocabulary (the severity numbers, the `service.*` semantic conventions) but emits
   a flat object rather than the `resourceLogs`/`scopeLogs`/`logRecords` envelope, so an OTLP
-  endpoint will not accept it and ingesting it needs a parser stack. The format itself is
-  unchanged and stays the default: it is markedly easier to query in the backends these records
-  actually land in. `Otlp` is an addition, not a replacement.
+  endpoint will not accept it and ingesting it needs a parser stack. This module was always meant
+  to emit something a collector could eat directly, and until now it did not.
 
 ## 2.12.0
 

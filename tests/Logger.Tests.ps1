@@ -3,40 +3,31 @@ BeforeAll {
     Import-Module $manifest -Force
 }
 
-Describe 'Write-LdoLog (JSON, default format)' {
+Describe 'Write-LdoLog (streams and defaults)' {
 
     It 'is exported from the module' {
         Get-Command Write-LdoLog -ErrorAction SilentlyContinue | Should -Not -BeNullOrEmpty
     }
 
-    It 'emits a single parseable JSON object with the expected fields' {
+    It 'defaults to Otlp with no -Format and no LDO_LOG_FORMAT' {
+        # The default is the wire format, so a collector reads the output of any
+        # LibreDevOpsHelpers command with no configuration on either side.
+        Get-LdoLogFormat | Should -Be 'Otlp'
+
         $warning = Write-LdoLog -Level WARN -Message 'careful' -InvocationName 'test' 3>&1
-        $obj = $warning.Message | ConvertFrom-Json
-        $obj.level | Should -Be 'WARN'
-        $obj.invocation | Should -Be 'test'
-        $obj.message | Should -Be 'careful'
-    }
-
-    It 'stamps a UTC ISO-8601 timestamp' {
-        $warning = Write-LdoLog -Level WARN -Message 'x' -InvocationName 'test' 3>&1
-        # Inspect the raw JSON: ConvertFrom-Json would coerce the string to a DateTime
-        # and drop the literal UTC marker we want to assert on.
-        $warning.Message | Should -Match '"timestamp":"\d{4}-\d{2}-\d{2}T[\d:.]+Z"'
-    }
-
-    It 'merges -Data properties into the record' {
-        $warning = Write-LdoLog -Level WARN -Message 'm' -InvocationName 'test' -Data @{ resourceGroup = 'rg-prod' } 3>&1
-        $obj = $warning.Message | ConvertFrom-Json
-        $obj.resourceGroup | Should -Be 'rg-prod'
+        $record = (($warning.Message | ConvertFrom-Json).resourceLogs[0].scopeLogs[0].logRecords)[0]
+        $record.body.stringValue | Should -Be 'careful'
+        $record.severityText     | Should -Be 'WARN'
     }
 
     It 'routes ERROR to the error stream without terminating' {
         $err = Write-LdoLog -Level ERROR -Message 'broke' -InvocationName 'test' 2>&1
-        ($err.ToString() | ConvertFrom-Json).message | Should -Be 'broke'
+        (($err.ToString() | ConvertFrom-Json).resourceLogs[0].scopeLogs[0].logRecords)[0].body.stringValue |
+            Should -Be 'broke'
     }
 
     It 'derives the invocation name from the caller when not supplied' {
-        function Invoke-Caller { Write-LdoLog -Level WARN -Message 'auto' 3>&1 }
+        function Invoke-Caller { Write-LdoLog -Level WARN -Message 'auto' -Format Json 3>&1 }
         $warning = Invoke-Caller
         ($warning.Message | ConvertFrom-Json).invocation | Should -Be 'Invoke-Caller'
     }
@@ -46,14 +37,52 @@ Describe 'Write-LdoLog (JSON, default format)' {
         $output | Should -BeNullOrEmpty
     }
 
-    It 'writes INFO as JSON on the information stream' {
+    It 'writes INFO as a structured record on the information stream' {
         $info = Write-LdoLog -Level INFO -Message 'hello' -InvocationName 'test' 6>&1
-        ($info.MessageData | ConvertFrom-Json).message | Should -Be 'hello'
+        (($info.MessageData | ConvertFrom-Json).resourceLogs[0].scopeLogs[0].logRecords)[0].body.stringValue |
+            Should -Be 'hello'
     }
 
-    It 'emits compact single-line JSON by default' {
+    It 'emits one compact line by default' {
         $warning = Write-LdoLog -Level WARN -Message 'x' -InvocationName 'test' 3>&1
         $warning.Message | Should -Not -Match "`n"
+    }
+}
+
+Describe 'Write-LdoLog (Json format)' {
+
+    # Json is no longer the default, but it is unchanged and still supported: it is the
+    # better shape for a backend that is not OTel-aware, such as Azure Monitor via KQL.
+
+    It 'emits a single parseable JSON object with the expected fields' {
+        $warning = Write-LdoLog -Level WARN -Message 'careful' -InvocationName 'test' -Format Json 3>&1
+        $obj = $warning.Message | ConvertFrom-Json
+        $obj.level | Should -Be 'WARN'
+        $obj.invocation | Should -Be 'test'
+        $obj.message | Should -Be 'careful'
+    }
+
+    It 'stamps a UTC ISO-8601 timestamp' {
+        $warning = Write-LdoLog -Level WARN -Message 'x' -InvocationName 'test' -Format Json 3>&1
+        # Inspect the raw JSON: ConvertFrom-Json would coerce the string to a DateTime
+        # and drop the literal UTC marker we want to assert on.
+        $warning.Message | Should -Match '"timestamp":"\d{4}-\d{2}-\d{2}T[\d:.]+Z"'
+    }
+
+    It 'merges -Data properties into the record' {
+        $warning = Write-LdoLog -Level WARN -Message 'm' -InvocationName 'test' -Data @{ resourceGroup = 'rg-prod' } -Format Json 3>&1
+        $obj = $warning.Message | ConvertFrom-Json
+        $obj.resourceGroup | Should -Be 'rg-prod'
+    }
+
+    It 'emits compact single-line JSON' {
+        $warning = Write-LdoLog -Level WARN -Message 'x' -InvocationName 'test' -Format Json 3>&1
+        $warning.Message | Should -Not -Match "`n"
+    }
+
+    It 'is flat, with no OTLP envelope' {
+        $warning = Write-LdoLog -Level WARN -Message 'x' -InvocationName 'test' -Format Json 3>&1
+        ($warning.Message | ConvertFrom-Json).PSObject.Properties.Name | Should -Not -Contain 'resourceLogs'
     }
 }
 
@@ -82,7 +111,7 @@ Describe 'Write-LdoLog (Text format)' {
             $warning = Write-LdoLog -Level WARN -Message 'plain' -InvocationName 'test' 3>&1
             $warning | Should -Match '\[WARN\]'
         } finally {
-            Set-LdoLogFormat -Format Json
+            Set-LdoLogFormat -Format Otlp
         }
     }
 }
@@ -101,7 +130,7 @@ Describe 'Set-LdoLogLevel' {
 
     It 'still emits messages at or above the configured level' {
         Set-LdoLogLevel -Level WARN
-        $warning = Write-LdoLog -Level WARN -Message 'shown' -InvocationName 'test' 3>&1
+        $warning = Write-LdoLog -Level WARN -Message 'shown' -InvocationName 'test' -Format Json 3>&1
         ($warning.Message | ConvertFrom-Json).message | Should -Be 'shown'
     }
 
@@ -111,10 +140,10 @@ Describe 'Set-LdoLogLevel' {
     }
 }
 
-Describe 'Write-LdoLog (OpenTelemetry fields)' {
+Describe 'Write-LdoLog (Json OpenTelemetry-flavoured fields)' {
 
     It 'emits severity_number and falls back service.name to the invocation name' {
-        $warning = Write-LdoLog -Level WARN -Message 'x' -InvocationName 'test' 3>&1
+        $warning = Write-LdoLog -Level WARN -Message 'x' -InvocationName 'test' -Format Json 3>&1
         $obj = $warning.Message | ConvertFrom-Json
         $obj.severity_number | Should -Be 13
         $obj.'service.name'  | Should -Be 'test'
@@ -123,7 +152,7 @@ Describe 'Write-LdoLog (OpenTelemetry fields)' {
     It 'honours LDO_SERVICE_NAME for service.name' {
         $env:LDO_SERVICE_NAME = 'terraform-azure'
         try {
-            $warning = Write-LdoLog -Level WARN -Message 'x' -InvocationName 'test' 3>&1
+            $warning = Write-LdoLog -Level WARN -Message 'x' -InvocationName 'test' -Format Json 3>&1
             ($warning.Message | ConvertFrom-Json).'service.name' | Should -Be 'terraform-azure'
         }
         finally {
@@ -132,7 +161,7 @@ Describe 'Write-LdoLog (OpenTelemetry fields)' {
     }
 
     It 'maps SUCCESS to INFO severity (9)' {
-        $info = Write-LdoLog -Level SUCCESS -Message 'done' -InvocationName 'test' 6>&1
+        $info = Write-LdoLog -Level SUCCESS -Message 'done' -InvocationName 'test' -Format Json 6>&1
         ($info.MessageData | ConvertFrom-Json).severity_number | Should -Be 9
     }
 }
@@ -142,7 +171,7 @@ Describe 'Write-LdoLog (TRACE and FATAL levels)' {
     AfterEach { Set-LdoLogLevel -Level INFO }
 
     It 'routes FATAL to the error stream with severity_number 21' {
-        $err = Write-LdoLog -Level FATAL -Message 'down' -InvocationName 'test' 2>&1
+        $err = Write-LdoLog -Level FATAL -Message 'down' -InvocationName 'test' -Format Json 2>&1
         $obj = $err.ToString() | ConvertFrom-Json
         $obj.message         | Should -Be 'down'
         $obj.severity_number | Should -Be 21
@@ -457,7 +486,7 @@ Describe 'Write-LdoLog (Otlp trace context)' {
 Describe 'Write-LdoLog (Otlp format selection)' {
 
     AfterAll {
-        Set-LdoLogFormat -Format Json
+        Set-LdoLogFormat -Format Otlp
         Set-LdoLogLevel -Level INFO
     }
 
@@ -467,15 +496,15 @@ Describe 'Write-LdoLog (Otlp format selection)' {
         (Get-LdoOtlpRecord -Line $line).body.stringValue | Should -Be 'x'
     }
 
-    It 'honours Set-LdoLogFormat -Format Otlp as the default' {
-        Set-LdoLogFormat -Format Otlp
+    It 'honours Set-LdoLogFormat -Format Json as an override of the default' {
+        Set-LdoLogFormat -Format Json
         try {
-            Get-LdoLogFormat | Should -Be 'Otlp'
+            Get-LdoLogFormat | Should -Be 'Json'
             $warning = Write-LdoLog -Level WARN -Message 'careful' -InvocationName 'test' 3>&1
-            (Get-LdoOtlpRecord -Line $warning.Message).body.stringValue | Should -Be 'careful'
+            ($warning.Message | ConvertFrom-Json).message | Should -Be 'careful'
         }
         finally {
-            Set-LdoLogFormat -Format Json
+            Set-LdoLogFormat -Format Otlp
         }
     }
 
@@ -484,7 +513,9 @@ Describe 'Write-LdoLog (Otlp format selection)' {
         @{ Value = 'OTLP'; Expected = 'Otlp' }
         @{ Value = 'otlpindented'; Expected = 'OtlpIndented' }
         @{ Value = 'json'; Expected = 'Json' }
-        @{ Value = 'nonsense'; Expected = 'Json' }
+        @{ Value = 'text'; Expected = 'Text' }
+        @{ Value = 'nonsense'; Expected = 'Otlp' }
+        @{ Value = ''; Expected = 'Otlp' }
     ) {
         # Resolution happens once when the module loads, so this has to re-import.
         $saved = $env:LDO_LOG_FORMAT
@@ -617,7 +648,7 @@ Describe 'Trace context' {
     It 'stamps trace_id, span_id and correlation_id onto the record' {
         Set-LdoTraceContext -Generate
         $ctx = Get-LdoTraceContext
-        $warning = Write-LdoLog -Level WARN -Message 'x' -InvocationName 'test' 3>&1
+        $warning = Write-LdoLog -Level WARN -Message 'x' -InvocationName 'test' -Format Json 3>&1
         $obj = $warning.Message | ConvertFrom-Json
         $obj.trace_id       | Should -Be $ctx.trace_id
         $obj.span_id        | Should -Be $ctx.span_id
@@ -637,7 +668,7 @@ Describe 'Trace context' {
     It 'Clear-LdoTraceContext removes the trace fields from records' {
         Set-LdoTraceContext -Generate
         Clear-LdoTraceContext
-        $warning = Write-LdoLog -Level WARN -Message 'x' -InvocationName 'test' 3>&1
+        $warning = Write-LdoLog -Level WARN -Message 'x' -InvocationName 'test' -Format Json 3>&1
         ($warning.Message | ConvertFrom-Json).PSObject.Properties.Name | Should -Not -Contain 'trace_id'
     }
 }
