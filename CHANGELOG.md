@@ -2,6 +2,14 @@
 
 All notable changes to LibreDevOpsHelpers are recorded here.
 
+## 3.0.1
+
+### Fixed
+- `Invoke-LdoTerraformPlanDestroy` now writes `tfplan-destroy.plan` by default, the file
+  `Invoke-LdoTerraformDestroy` applies by default. It wrote `tfplan.plan.destroy`, so the pair
+  called with their defaults (as every Libre DevOps module's `just destroy` does) planned one file
+  and then failed to find the other. A caller that names `-PlanFile` on both is unaffected.
+
 ## 3.0.0
 
 ### Changed

@@ -15,6 +15,18 @@ Describe 'Terraform module surface' {
     }
 }
 
+Describe 'Destroy plan file defaults' {
+    It 'plans the file the destroy applies, so the pair works without naming it' {
+        $default = {
+            param([string]$Command)
+            $parameters = (Get-Command $Command).ScriptBlock.Ast.Body.ParamBlock.Parameters
+            ($parameters | Where-Object { $_.Name.VariablePath.UserPath -eq 'PlanFile' }).DefaultValue.Value
+        }
+        & $default 'Invoke-LdoTerraformPlanDestroy' | Should -Be 'tfplan-destroy.plan'
+        & $default 'Invoke-LdoTerraformDestroy' | Should -Be (& $default 'Invoke-LdoTerraformPlanDestroy')
+    }
+}
+
 Describe 'Invoke-LdoTerraformValidate' {
     It 'throws when the code path does not exist' {
         { Invoke-LdoTerraformValidate -CodePath (Join-Path ([System.IO.Path]::GetTempPath()) ([guid]::NewGuid())) } |

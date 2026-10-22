@@ -51,12 +51,18 @@ Describe 'Get-LdoGitBranch / Get-LdoGitRepositoryUrl (CI env)' {
 Describe 'Export-LdoGitContextToTfVar' {
     BeforeEach {
         $script:saved = @{
-            GITHUB_REF_NAME       = $env:GITHUB_REF_NAME
-            GITHUB_SERVER_URL     = $env:GITHUB_SERVER_URL
-            GITHUB_REPOSITORY     = $env:GITHUB_REPOSITORY
+            GITHUB_HEAD_REF        = $env:GITHUB_HEAD_REF
+            BUILD_SOURCEBRANCHNAME = $env:BUILD_SOURCEBRANCHNAME
+            GITHUB_REF_NAME        = $env:GITHUB_REF_NAME
+            GITHUB_SERVER_URL      = $env:GITHUB_SERVER_URL
+            GITHUB_REPOSITORY      = $env:GITHUB_REPOSITORY
             TF_VAR_deployed_branch = $env:TF_VAR_deployed_branch
             TF_VAR_deployed_repo   = $env:TF_VAR_deployed_repo
         }
+        # A pull request build sets GITHUB_HEAD_REF, which the branch lookup prefers, so clear it
+        # (and the Azure DevOps one) for the GITHUB_REF_NAME below to be the answer.
+        $env:GITHUB_HEAD_REF = ''
+        $env:BUILD_SOURCEBRANCHNAME = ''
         $env:GITHUB_REF_NAME = 'main'
         $env:GITHUB_SERVER_URL = 'https://github.com'
         $env:GITHUB_REPOSITORY = 'libre-devops/terraform-azurerm-tags'

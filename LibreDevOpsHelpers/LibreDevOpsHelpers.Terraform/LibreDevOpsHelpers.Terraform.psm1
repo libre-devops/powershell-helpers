@@ -417,7 +417,8 @@ function Invoke-LdoTerraformPlanDestroy {
         Path to the Terraform configuration folder.
 
     .PARAMETER PlanFile
-        Output plan file name. Defaults to tfplan.plan.destroy.
+        Output plan file name. Defaults to tfplan-destroy.plan, the file Invoke-LdoTerraformDestroy
+        applies by default, so the pair works without naming it.
 
     .PARAMETER PlanArgs
         Additional arguments passed through to terraform plan.
@@ -432,7 +433,7 @@ function Invoke-LdoTerraformPlanDestroy {
     [OutputType([void])]
     param(
         [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$CodePath,
-        [string]$PlanFile = 'tfplan.plan.destroy',
+        [string]$PlanFile = 'tfplan-destroy.plan',
         [string[]]$PlanArgs = @()
     )
 
@@ -538,7 +539,7 @@ function Invoke-LdoTerraformDestroy {
         Additional arguments passed through to terraform apply.
 
     .EXAMPLE
-        Invoke-LdoTerraformDestroy -CodePath ./terraform -PlanFile tfplan.plan.destroy
+        Invoke-LdoTerraformDestroy -CodePath ./terraform -PlanFile tfplan-destroy.plan
 
     .OUTPUTS
         None
