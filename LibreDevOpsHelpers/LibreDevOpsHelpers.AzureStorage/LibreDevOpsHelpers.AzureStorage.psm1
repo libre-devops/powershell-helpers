@@ -102,8 +102,12 @@ function Add-LdoStorageCurrentIpRule {
     az @update | Out-Null
     Assert-LdoLastExitCode -Operation "az storage account update ($StorageAccountName)"
 
-    $existing = az storage account network-rule list -g $ResourceGroup -n $StorageAccountName --query "[?ipAddress=='$ip']" -o tsv
-    if (-not $existing) {
+    # az storage account network-rule list returns an object ({ ipRules: [{ action, ipAddressOrRange }],
+    # virtualNetworkRules, ... }), not a list, so a top-level filter never matches. Match the address
+    # with or without a /32 suffix.
+    $rules = @(az storage account network-rule list -g $ResourceGroup -n $StorageAccountName --query 'ipRules[].ipAddressOrRange' -o json | ConvertFrom-Json)
+    Assert-LdoLastExitCode -Operation "az storage account network-rule list ($StorageAccountName)"
+    if (($rules -notcontains $ip) -and ($rules -notcontains "$ip/32")) {
         az storage account network-rule add -g $ResourceGroup -n $StorageAccountName --ip-address $ip | Out-Null
         Assert-LdoLastExitCode -Operation "az storage account network-rule add ($StorageAccountName)"
         Write-LdoLog -Level INFO -Message "Added temporary storage rule for $ip on $StorageAccountName."

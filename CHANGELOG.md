@@ -2,6 +2,19 @@
 
 All notable changes to LibreDevOpsHelpers are recorded here.
 
+## 3.0.2
+
+### Fixed
+- `Add-LdoKeyVaultCurrentIpRule` and `Add-LdoStorageCurrentIpRule` now see a rule that is already
+  there. Both checked with a top-level filter (`[?ipAddress=='<ip>']`), but `az keyvault
+  network-rule list` and `az storage account network-rule list` return an object
+  (`{ ipRules: [...] }`), not a list, so the check never matched and the rule was added again on
+  every call. The Azure CLI deduplicated it, so nothing broke, but the log always claimed a new
+  rule. They now read `ipRules[].value` (Key Vault) and `ipRules[].ipAddressOrRange` (storage),
+  match the address with or without `/32` (Key Vault stores a single address as a /32), and log
+  "already present" when it is. Found during a live Key Vault dance from the azure-orchestration
+  build.
+
 ## 3.0.1
 
 ### Fixed

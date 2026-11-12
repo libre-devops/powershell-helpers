@@ -110,13 +110,19 @@ function Add-LdoKeyVaultCurrentIpRule {
     az @update | Out-Null
     Assert-LdoLastExitCode -Operation "az keyvault update ($KeyVaultName)"
 
-    $existing = az keyvault network-rule list -g $ResourceGroup -n $KeyVaultName --query "[?ipAddress=='$ip']" -o tsv
-    if (-not $existing) {
+    # az keyvault network-rule list returns an object ({ ipRules: [{ value }], virtualNetworkRules }),
+    # not a list, so a top-level filter never matches; and the vault stores a single address as a
+    # /32 CIDR, so match either form.
+    $rules = @(az keyvault network-rule list -g $ResourceGroup -n $KeyVaultName --query 'ipRules[].value' -o json | ConvertFrom-Json)
+    Assert-LdoLastExitCode -Operation "az keyvault network-rule list ($KeyVaultName)"
+    if (($rules -notcontains $ip) -and ($rules -notcontains "$ip/32")) {
         az keyvault network-rule add -g $ResourceGroup -n $KeyVaultName --ip-address $ip | Out-Null
         Assert-LdoLastExitCode -Operation "az keyvault network-rule add ($KeyVaultName)"
+        Write-LdoLog -Level INFO -Message "Added temporary Key Vault rule for $ip on $KeyVaultName."
     }
-
-    Write-LdoLog -Level INFO -Message "Added temporary Key Vault rule for $ip on $KeyVaultName."
+    else {
+        Write-LdoLog -Level INFO -Message "Key Vault rule for $ip already present on $KeyVaultName; skipping add."
+    }
 }
 
 function Remove-LdoKeyVaultCurrentIpRule {
